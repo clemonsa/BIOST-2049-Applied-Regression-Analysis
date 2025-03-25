@@ -9,3 +9,17 @@ However, there are concerns about the current push towards using MA plans in com
 Overall while MA have their advantages for some, it has been observed that many sicker beneficiaries are less likely to use MA plans which could contribute to an increase in use hospital and emergency department resources. 
 
 Our research question is to examine whether we can accurately use metrics of hospital readmissions and emergency department vists to predict the participation of MA enrollees.
+
+# Methods
+
+The data used is the [Centers for Medicare & Medicaid Services](https://www.cms.gov/Research-Statistics-Data-and-Systems/Statistics-Trends-and-Reports/Medicare-Geographic-Variation/GV_PUF) Medicare Geographic Variation Public Use Files, *State Table - Beneficiaries Under 65* dataset. 
+
+We remove the *National* and *(Unknown)* States from analysis. Our research question is whether we can predict the *MA Participation Rate* using all four of the *Readmissions and ED Visit* variables as predictors. The data will be split, using the years 2007 - 2016 as training for the model and will be we evaluated using the year 2017 set to determine the accuracy of the fitted model.
+
+The descriptive statistics of the training data for the outcome and variables will be observed through a table and plots, which display the median and kernal probability density of Medicare Advantage Participation Rate(MA) by each predictor variable.
+
+Next assumptions for our Multiple Linear Regression (MLR) model must be considered before fitting our model. We will perform graphical analysis on the outcome and predictors in order to identify whether there is linearity between outcome and each predictor. This will be followed by testing these same assumptions and possible collinearity with statistical tests.
+
+If necessary, we will make adjustments to the data in order for it to become suitable for fitting a model.
+
+After we have fit the model, we will perform a series of diagnoses to determine if our model is the best.
