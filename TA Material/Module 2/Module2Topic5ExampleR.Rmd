@@ -1,0 +1,219 @@
+---
+title: "Module 2 Topic 5 Example"
+output:
+  html_document: default
+---
+
+
+Read in the same data from Module 1
+
+```{r}
+data_mod1 = read.csv("Module1Topics1and2Example.csv")
+```
+
+
+Fit the model as before with the previous example
+```{r}
+fit <- lm(y ~ x1 + x2 + x3, data = data_mod1)
+summary(fit)
+```
+
+```{r}
+data_mod1$yhat <- predict(fit) # predict yhat
+```
+
+```{r}
+library(MASS)
+data_mod1$jack <- studres(fit) # jack residuals
+```
+
+```{r}
+data_mod1$lev <- hatvalues(fit) # Calculate leverage
+```
+
+```{r}
+data_mod1$dist <- cooks.distance(fit) # Calculate Cook's D
+```
+
+```{r}
+data_mod1$dfit <- dffits(fit) # Calculate DFFITS
+```
+
+```{r, eval = FALSE}
+dfbeta(fit) # Calculates DFBETAS
+```
+
+```{r}
+# DFBETAs for each covariate
+data_mod1$dx1 <- dfbeta(fit)[, 'x1']
+data_mod1$dx2 <- dfbeta(fit)[, 'x2']
+data_mod1$dx3 <- dfbeta(fit)[, 'x3']
+```
+
+```{r}
+data_mod1$resid <- resid(fit) # Calculate OLS Residuals
+```
+
+Our complete dataframe
+```{r}
+head(data_mod1)
+```
+
+Now that we have calculated the above diagnostic statistics we can then move on to creating graphs using the `ggplot2` package.
+
+```{r}
+library(ggplot2)
+p <- ggplot(data_mod1)
+
+p + aes(x = lev) +
+  geom_boxplot(colour = 'darkblue', fill = 'cornflowerblue') +
+  ggtitle("Boxplot of Leverage Values") +
+  xlab("Leverage") +
+  coord_flip() +
+  theme_bw()
+```
+
+```{r}
+p + aes(x = patient, y = lev) +
+  geom_point(colour = 'darkblue') +
+  ggtitle('patient Plot of Leverage Values') +
+  theme_bw()
+```
+
+```{r}
+p + aes(x = dist) +
+  geom_boxplot(colour = 'darkblue', fill = 'cornflowerblue') +
+  ggtitle("Boxplot of Cook's D") + 
+  xlab("Cook's Distance") +
+  coord_flip() +
+  theme_bw()
+```
+
+```{r}
+p + aes(x = patient, y = dist) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Patient Plot of Cook's D") +
+  theme_bw()
+```
+
+```{r}
+p + aes(x = dfit) +
+  geom_boxplot(colour = 'darkblue', fill = 'cornflowerblue') +
+  ggtitle("Boxplot of DFFITS") + 
+  xlab("DFFITS") +
+  coord_flip() +
+  theme_bw()
+```
+
+```{r}
+p + aes(x = patient, y = dfit) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Patient Plot of DFFITS") +
+  theme_bw()
+```
+
+Below is a boxplot of the DFBETAS for the `x1` variable
+
+```{r}
+p + aes(x = dx1) +
+  geom_boxplot(colour = 'darkblue', fill = 'cornflowerblue') +
+  coord_flip() +
+  ggtitle('Boxplot of x1 DFBETAS') +
+  theme_bw()
+```
+
+To create a single boxplot of all of the covariate DFBETAS for comparison we must reshape our dataframe appropriately using the `tidyr` package
+```{r}
+library(tidyr)
+melted_df <- pivot_longer(data_mod1, cols = c('dx1', 'dx2', 'dx3'), names_to = "variable") 
+head(melted_df)
+```
+
+Now we can plot as usual
+```{r}
+p2 <- ggplot(melted_df)
+
+p2 + aes(x = value, fill = variable) +
+  geom_boxplot() +
+  xlab('DFBETA') +
+  ggtitle("Boxplot of DFBETAS") +
+  coord_flip() +
+  theme_bw()
+```
+
+It is very difficult to view the range of `dx3` so it would be wise to make a separate boxplot for `dx3` just like w/ `x1` above.
+
+
+```{r}
+p + aes(x = resid^2, y = lev) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Leverage Residual Plot") +
+  xlab('Normalized Residual Squared') +
+  theme_bw()
+```
+
+
+```{r}
+p + aes(x = yhat, y = jack) +
+  geom_point(shape = 1, aes(stroke = 1.1, size = dist), colour = 'darkblue') +
+  ggtitle("Jack Knife Residuals vs Fits with Circles Proportional to Cooks D") +
+  xlab("Fitted Values") +
+  ylab("Studentized Residuals") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  theme(legend.title = element_blank()) +
+  theme_bw()
+  
+```
+
+In order to sort our observations by Cook's Distance we can rearrange our dataframe
+```{r}
+sorted_df <- data_mod1[order(data_mod1$dist), ] # create new data.frame sorted by 'dist' variable
+head(sorted_df)
+```
+
+To identify the points greater than the cutoff value
+```{r}
+(cut_off <- 4 / nrow(data_mod1)) # calculate Cook's D cutoff using 4/n formulation
+high_dist <- sorted_df[sorted_df$dist >= cut_off, ] # identifies patient values equal or greater than cut_off
+high_dist
+```
+
+As we can see, it was the 6th and 44th observations that had a Cook's D greater than `r cut_off` which was our cutoff.
+
+
+To refit the model while removing observations with whichever you determined to be the cutoff point for Cook's D
+```{r}
+data_mod1 <- data_mod1[!data_mod1$patient %in% high_dist$patient, ] # new data.frame w/o high Cook's D
+fit2 <- lm(y ~ x1 + x2 + x3, data = data_mod1)
+summary(fit2)
+```
+
+Now to make predictions again using the new model
+```{r}
+data_mod1$yhat2 <- predict(fit2)
+```
+
+Now lets compare the yhat values between the models
+```{r}
+p3 <- ggplot(data_mod1)
+
+p3 + aes(x = yhat, y = yhat2) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Comparison of Two Fits w/ Influential Points Removed") +
+  theme_bw()
+```
+
+To find the correlation
+```{r}
+cor(data_mod1$yhat, data_mod1$yhat2)
+```
+
+To perform a robust regression requires using the `MASS` package
+```{r}
+# library(MASS)
+MASS::rlm(formula = y ~ x1 + x2 + x3, data = data_mod1)
+```
+
+**IMPORTANT**
+
+There will be a difference in the coefficient values between the `rlm()` function of R and `rreg` of STATA, despite that both functions are performing similar statistical procedures, both are using just one of many different forms of robust regression. Nonetheless, for this class these differences are negligible.

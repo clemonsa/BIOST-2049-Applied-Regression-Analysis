@@ -1,0 +1,160 @@
+---
+title: "Module 4 Topic 12 Example"
+date: "3/12/2021"
+output:
+  html_document: 
+    toc: TRUE
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in the data
+```{r}
+prostate <- read.csv('prostatecancer.csv') # reads in .csv file
+
+# convert binary variables into factors
+prostate$xray <- factor(prostate$xray)
+prostate$size <- factor(prostate$size)
+prostate$grade <- factor(prostate$grade)
+prostate$ni <- factor(prostate$ni)
+```
+
+## Loading Libraries
+```{r}
+library(ggplot2)
+```
+
+
+## Fitting a Logistic Regression Model
+
+```{r}
+summary(fit1 <- glm(ni ~ . - patient, # using '.' indicates to use all columns not already named
+                    family = binomial(link = "logit"), data = prostate))
+```
+
+## Hosmer-Lemeshow GOF Test
+
+To perform this test we will be using the `performance` package. Many of you may find this package quite useful as it provides a multitude of functions to test and evaluate model quality. More information about the package can be learned [here](https://easystats.github.io/performance/index.html).
+
+```{r}
+performance::performance_hosmer(fit1, n_bins = 10)
+```
+
+According to `help(performance_hosmer, "performance")`, as our p-value of `r round(performance::performance_hosmer(fit1, n_bins = 8)$p.value, 3)` is not statistically significane we FAIL TO REJECT the null hypothesis and conclude that there is not enough evidence to suggest a difference between our model and our data. We would then conclude that our model is well-fitting.
+
+Recall the `logit_summary()` function from the Module 4 Topic 10 R code in order to get a summary w/ similar output to STATA.
+
+```{r, include=FALSE}
+logit_summary <- function(x){
+  stopifnot(class(x)[1] == "glm") # input must be of class 'glm'
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- with(x, null.deviance - deviance) # chi-square test statistic
+  AIC <- x$aic # Akaike information criterion
+  BIC <- (-2 * LL) + (log(length(x$residuals)) * (length(preds) + 1)) # Bayesian Information Criterion
+  pval <- with(x, stats::pchisq(null.deviance - deviance, # p-value of model
+                         df.null - df.residual, lower.tail = FALSE))
+  
+  mod_stats <- merge(summary(x)$coefficients, exp(confint.default(x)), by = "row.names") # model stats
+  mod_stats$`Odds Ratio` <- exp(mod_stats$Estimate) # add 'Odds Ratio'
+  mod_stats <- subset(mod_stats, select = -Estimate) # drop 'Estimate'
+  mod_stats <- mod_stats[,c(1, ncol(mod_stats),2:(ncol(mod_stats)-1))] # reorder columns
+  
+
+  
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "LR chi2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+```
+
+```{r}
+logit_summary(fit1)
+```
+
+## Assess Unusual Observations
+
+To obtain the various model statistics such as $\hat{p}$ or residuals recall the following:
+```{r, eval=FALSE}
+fitted.values(fit1) # p-hat
+fit1$fitted.values # p-hat
+
+resid(fit1, type = "pearson") # Pearson residual
+rstandard(fit1) # standardized Pearson residual
+deviance(fit1) # deviance of residuals
+fit1$deviance # deviance of residuals
+hatvalues(fit1) # Pregibon leverage
+dfbetas(fit1) # Pregibon dbeta
+cooks.distance(fit1) # Cook's Distance
+```
+
+## Standardized Pearson Residuals
+
+```{r}
+p <- ggplot(prostate)
+
+p + aes(x = fitted.values(fit1), y = rstandard(fit1), label = patient) +
+  geom_hline(yintercept = 0, colour = "red") +
+  geom_point(colour = "darkblue") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = "Standardized Pearson Residual vs Fitted Probabilities",
+       x = "Pr(NI)", y = "Standardized Pearson Residual") +
+  theme_bw()
+
+p + aes(x = patient, y = rstandard(fit1), label = patient) +
+  geom_hline(yintercept = 0, colour = "red") +
+  geom_point(colour = "darkblue") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = "Standardized Pearson Residual",
+       x = "Index", y = "Standardized Pearson Residual") +
+  theme_bw()
+  
+```
+
+## Pregibon Leverage
+
+```{r}
+p + aes(x = patient, y = hatvalues(fit1), label = patient) +
+  geom_hline(yintercept = 0, colour = "red") +
+  geom_point(colour = "darkblue") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = "Pregibon Leverage",
+       x = "Index", y = "Leverage") +
+  theme_bw()
+```
+
+## Cook's Distance
+
+```{r}
+p + aes(x = patient, y = cooks.distance(fit1), label = patient) +
+  geom_hline(yintercept = 0, colour = "red") +
+  geom_point(colour = "darkblue") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = "DBETA",
+       x = "Index", y = "Pregibon's dbeta") +
+  theme_bw()
+```
+
+## Partial Residual Plot
+
+```{r}
+car::crPlot(fit1, variable = "acid")
+summary(fit2 <- glm(ni ~ . - patient, family = binomial(link = "logit"),
+                    data = subset(prostate, patient != 24))) # exclude patient 24
+
+car::crPlot(fit2, variable = "acid")
+```
+

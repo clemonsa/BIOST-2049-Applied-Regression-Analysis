@@ -1,0 +1,142 @@
+---
+title: "Module 4 Topic 11 Example"
+output:
+  html_document: 
+    toc: TRUE
+  pdf_document: default
+---
+
+
+Read in the data
+```{r}
+prostate <- read.csv('prostatecancer.csv') # reads in .csv file
+
+# convert binary variables into factors
+prostate$xray <- factor(prostate$xray)
+prostate$size <- factor(prostate$size)
+prostate$grade <- factor(prostate$grade)
+prostate$ni <- factor(prostate$ni)
+```
+
+## Fitting Logistic Regression Model
+
+```{r}
+summary(fit1 <- glm(ni ~ grade, family = binomial(link = "logit"), data = prostate))
+```
+
+## Estimating the OR from logit link
+
+Recall in the Topic 10 example where we obtained the coefficient OR using `coef()` within the `exp()` function in order to undo the logit transformation on the coefficient estimates.
+
+```{r}
+exp(coef(fit1)) # Odds Ratio of coefficients
+exp(fit1$coefficients) # 2nd method
+```
+
+To obtain the 95% confidence interval was also introduced in the Topic 10 example using `confint.default()`
+```{r}
+exp(confint.default(fit1))
+```
+
+
+We can also use the custom function from Topic 10 if you wish to obtain the usual summary output but w/ OR.
+
+```{r, include = FALSE}
+logit_summary <- function(x){
+  stopifnot(class(x)[1] == "glm") # input must be of class 'glm'
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- with(x, null.deviance - deviance) # chi-square test statistic
+  AIC <- x$aic # Akaike information criterion
+  BIC <- (-2 * LL) + (log(length(x$residuals)) * (length(preds) + 1)) # Bayesian Information Criterion
+  pval <- with(x, stats::pchisq(null.deviance - deviance, # p-value of model
+                         df.null - df.residual, lower.tail = FALSE))
+  
+  mod_stats <- merge(summary(x)$coefficients, exp(confint.default(x)), by = "row.names") # model stats
+  mod_stats$`Odds Ratio` <- exp(mod_stats$Estimate) # add 'Odds Ratio'
+  mod_stats <- subset(mod_stats, select = -Estimate) # drop 'Estimate'
+  mod_stats <- mod_stats[,c(1, ncol(mod_stats),2:(ncol(mod_stats)-1))] # reorder columns
+  
+
+  
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "LR chi2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+```
+
+```{r}
+logit_summary(fit1)
+```
+
+
+## Logistic Regression
+
+For base R there is only one way to perform a logistic regression, there are no alternatives. We only use the `glm()` function. More information about `glm()` can be found using the `help(glm)` and more on logistic regression can be found [here](https://stats.idre.ucla.edu/r/dae/logit-regression/).
+
+### Covariate Adjustment
+
+```{r}
+logit_summary(fit2 <- glm(ni ~ grade + size, family = binomial(link = "logit"), data = prostate))
+```
+
+To perform a covariate adjustment comparing different grades with different sizes we will be using the `glht()` function from the `multcomp` package to fit a new model.
+
+```{r}
+summary(fit3 <- multcomp::glht(fit2, linfct = c("grade1 - size1 = 0")))
+```
+
+Once again keep in mind that the provided `Estimate` is transformed and you would need to apply the `exp()` function to obtain the estimated OR of `r exp(coef(fit3))`, $\exp(-0.6959) = 0.4986$.
+
+The same applies for the 95% confidence interval.
+```{r}
+exp(confint.default(fit3))
+```
+
+Information on how to test contrasts in R using the `multcomp` package can be found [here](https://stats.idre.ucla.edu/r/faq/how-can-i-test-contrasts-in-r/) and documentation on how to use the `glht()` function can be found using `help(glht, multcomp)`. I highly recommend examining these so you can know how to apply this towards the Data Analysis 4 if necessary.
+
+### Predicted Probability
+
+```{r}
+exp(-1.6008+0.7293)/(1+exp(-1.6008+0.7293))
+```
+
+To use R for calculating the estimated probability
+```{r}
+prostate$prob <- predict(fit2, type = 'response')
+subset(prostate, size == 0 & grade == 1, select = c(grade, size, prob))
+```
+
+Currently we are unable to mimic the `STATA` margins command on slide 13 to get specific predicted probabilities. Instead we will use the `predict.glm()` function, which requires us to enter new data of the same form as the data used to fit the model.
+
+```{r}
+newData <- data.frame(size = '0', grade = '1', stringsAsFactors = T)
+predict.glm(fit2, newdata = newData, type = 'response')
+```
+
+
+### Interpreting OR with a Continuous Predictor
+
+This is as simple as just fitting the model using a continuous predictor
+```{r}
+summary(fit4 <- glm(ni ~ acid, family = binomial(link = "logit"), data = prostate))
+logit_summary(fit4)
+```
+
+### Estimating OR with Other Than 1 Unit Of Change
+
+If we want to use a change on `acid` predictor of 0.5 then the following is applicable
+```{r}
+summary(fit5 <- multcomp::glht(fit4, linfct = c("0.5 * acid = 0")))
+cbind(exp(coef(fit5)), exp(confint.default(fit5))) # OR and 95% confidence interval
+```

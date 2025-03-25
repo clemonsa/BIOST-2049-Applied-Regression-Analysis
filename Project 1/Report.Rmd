@@ -1,0 +1,265 @@
+---
+title: "BIOST 2049 Project 1"
+author: "Arvon Clemons II"
+date: "March 6, 2020"
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: '3'
+---
+```{r, echo= FALSE}
+wd <- getwd(); setwd(wd)
+rm(list=ls()); cat('\014')
+library(tidyverse); library(readxl); library(ggpubr); library(magrittr); library(MASS); library(caret); library(leaps)
+```
+# Introduction
+
+Medicare Advantage (MA) Plans are a form of Medicare where beneficiaries are covered by a private company, which contracts through Medicare, to provide both Plan A and Part B benefits. 
+
+The advantage to this form of healthcare coverage is that cost sharing may be less in comparison to the standard Medicare and out-of-pocket costs are limited. The result are cost-savings that can encourage people to partake in preventative heatlthcare, reducing the burden of using hospital resources for medical emergencies and extended stays. Many MA plans also included coverage beyond that of standard Medicare such as vision, dental, hearing aids, and prescription drug coverage.
+
+However, there are concerns about the current push towards using MA plans in comparison to traditional Medicare. Medicare Advantage programs come with many restrictions, such as in doctors or facilities that accept beneficiaries in comparison to the standard Medicare. This can lead to obstacles for beneficiaries wishing to seek medical care and could have a negative effect on healthcare outcomes. Furthermore, MA plans are regional instead of national which restricts participating providers to those in which beneficiaries reside in the same area for at least 6 months of the year. This geographic restriction could discourage those who livelihoods require spending time in different locations throughout the year or increases the distance between those in rural areas to healthcare providers that accept their coverage. 
+
+Overall while MA have their advantages for some, it has been observed that many sicker beneficiaries are less likely to use MA plans which could contribute to an increase in use hospital and emergency department resources. 
+
+Our research question is to examine whether we can accurately use metrics of hospital readmissions and emergency department vists to predict the participation of MA enrollees. 
+
+# Methods
+
+The data used is the [Centers for Medicare & Medicaid Services](https://www.cms.gov/Research-Statistics-Data-and-Systems/Statistics-Trends-and-Reports/Medicare-Geographic-Variation/GV_PUF) Medicare Geographic Variation Public Use Files, *State Table - Beneficiaries Under 65* dataset. 
+
+We remove the *National* and *(Unknown)* States from analysis. Our research question is whether we can predict the *MA Participation Rate* using all four of the *Readmissions and ED Visit* variables as predictors. The data will be split, using the years 2007 - 2016 as training for the model and will be we evaluated using the year 2017 set to determine the accuracy of the fitted model.
+
+The descriptive statistics of the training data for the outcome and variables will be observed through a table and plots, which display the median and kernal probability density of Medicare Advantage Participation Rate(MA) by each predictor variable.
+
+Next assumptions for our Multiple Linear Regression (MLR) model must be considered before fitting our model. We will perform graphical analysis on the outcome and predictors in order to identify whether there is linearity between outcome and each predictor. This will be followed by testing these same assumptions and possible collinearity with statistical tests.
+
+If necessary, we will make adjustments to the data in order for it to become suitable for fitting a model.
+
+After we have fit the model, we will perform a series of diagnoses to determine if our model is the best.
+
+# Results
+
+```{r, echo = FALSE, results= FALSE}
+file <- "State Under 65 Table 2017.xlsx"
+
+## Creating working dataframe for analysis ##
+df <- file %>% 
+  excel_sheets() %>%
+  map_df(~ read_xlsx(path = file, sheet = .x, skip = 1), .id = 'sheet')
+index <- which(is.na(df$`State FIPS Code`)) # Index undesirable rows to be removed
+clean_df <- df[-index,] # dataframe with undesirable rows removed
+
+## Split data into training and prediction sets ##
+years <- unique(clean_df$sheet) # Index of years from State collection
+working_df <- clean_df[, c('sheet','MA Participation Rate','Number of Acute Hospital Readmissions','Hospital Readmission Rate','Emergency Department Visits','Emergency Department Visits per 1000 Beneficiaries')]
+colnames(working_df) <- c('State.Yr','MAPR','NAR','HRR','EDV','EDV1000')
+
+
+training_df <- working_df[working_df$State.Yr %in% years[1:10], ]
+test_df <- working_df[working_df$State.Yr %in% years[11], ]
+
+training_df <- apply(training_df, 2, str_remove, pattern = '%') # Remove '%' signs
+training_df <- training_df[, -1] #remove sheets column
+training_df <- as.data.frame(apply(training_df, 2, as.numeric)) # Class all columns as numeric
+test_df <- apply(test_df, 2, str_remove, pattern = '%') # Remove '%' signs
+test_df <- test_df[, -1] #remove sheets column
+test_df <- as.data.frame(apply(test_df, 2, as.numeric)) # Class all columns as numeric
+
+```
+
+```{r, echo = FALSE}
+## Descriptive Statistics ##
+desc <- summary(training_df)
+
+A3 <- ggplot(data=training_df, aes(x=NAR, y=MAPR)) + geom_violin(trim = FALSE) + ylab("MA Participation Rate") + xlab('Acute Hospital Readmissions') + ggtitle('Acute Hospital Readmissions') + stat_summary(fun.y=median, geom="point", size=2, color="dodgerblue4", alpha = 0.1)
+
+B3 <- ggplot(data=training_df, aes(x=HRR, y=MAPR)) + geom_violin(trim = FALSE) + ylab("MA Participation Rate") + xlab("Hospital Readmission Rate") + ggtitle("Hospital Readmission Rate") + stat_summary(fun.y=median, geom="point", size=2, color="dodgerblue4", alpha = 0.1)
+
+C3 <- ggplot(data=training_df, aes(x=EDV, y=MAPR)) + geom_violin(trim = FALSE) + ylab("MA Participation Rate") + xlab("Emergency Department Visits") + ggtitle("Emergency Department Visits") + stat_summary(fun.y=median, geom="point", size=2, color="dodgerblue4", alpha = 0.1)
+
+D3 <- ggplot(data=training_df, aes(x=EDV1000, y=MAPR)) + geom_violin(trim = FALSE) + ylab("MA Participation Rate") + xlab("EDV \n (per 1000)") + ggtitle("Emergency  Department Visits \n (per 1000)") + stat_summary(fun.y=median, geom="point", size=2, color="dodgerblue4", alpha = 0.1)
+
+figA <- ggarrange(A3 + rremove('y.text'), B3 + rremove('y.text'), C3 + rremove('y.text'), D3 + rremove('y.text'), labels = c('A','B','C','D'), ncol = 2, nrow = 2)
+
+annotate_figure(figA,
+                top = text_grob('Violin Plots MA vs Predictors', color = 'goldenrod4', face = 'bold', size = 14), fig.lab='Figure 1', fig.lab.face = 'bold')
+```
+
+
+
+MA Participation (MAPR) | Number of Acute Hospital Readmission (NAR) | Hospital Readmission Rate (HRR) | Emergency Department Visits (EDV) | EDV (per 1000)
+-------- | -------- | -------- | -------- | --------
+  `r desc[1, 1]` | `r desc[1, 2]` | `r desc[1, 3]` | `r desc[1, 4]` | `r desc[1, 5]` 
+  `r desc[3, 1]` | `r desc[3, 2]` | `r desc[3, 3]` | `r desc[3, 4]` | `r desc[3, 5]` 
+  `r desc[4, 1]` | `r desc[4, 2]` | `r desc[4, 3]` | `r desc[4, 4]` | `r desc[4, 5]` 
+  `r desc[6, 1]` | `r desc[6, 2]` | `r desc[6, 3]` | `r desc[6, 4]` | `r desc[6, 5]` 
+  
+Each of the above variables are heavily right-skewed in relation to the outcome.
+
+```{r, echo=FALSE}
+ggplot(data = training_df, aes(x=MAPR, y=(..density..))) + geom_histogram(bins = 50, fill='dodgerblue4', color='black') + xlab('MA Participation Rate') + ggtitle('Distribution of MA Participation Rates') + geom_density(alpha=0.3, fill='goldenrod4')
+
+```
+
+The above histogram suggests that the assumption that the outcome is normally distributed is violated, as we see can clearly see a right-skew with outliers.
+
+Using the Shapiro-Wilk Normality Test we tested whether to reject our assumption the outcome and all variables were normally distributed. All variables showed significant p-values, thus confirming that they deviate from normality.
+
+```{r, echo=FALSE, results=FALSE}
+sw.test <- apply(training_df, 2, shapiro.test)
+
+sw.pval <- lapply(sw.test, function(x) x$p.value)
+```
+
+Variable | MA Participation | Acute Hospital Readmission | Hospital Readmission Rate | Emergency Department Visits | EDV (per 1000)
+-------- |-------- | -------- | -------- | -------- | --------
+p-value | `r sw.pval$MAPR` | `r sw.pval$NAR` | `r sw.pval$HRR` | `r sw.pval$EDV` | `r sw.pval$EDV1000`
+  
+
+```{r, echo = FALSE, results = FALSE}
+## Scatterplots Output vs Predictors ##
+A1 <- ggplot(data = training_df, aes(x = NAR, y = MAPR)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("MA Participation Rate") + xlab("Acute Hospital Readmissions") + ggtitle("Acute Hospital Readmissions")
+
+B1 <- ggplot(data = training_df, aes(x = HRR, y = MAPR)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("MA Participation Rate") + xlab("Hospital Readmission Rate") + ggtitle("Hospital Readmission Rate")
+
+C1 <- ggplot(data = training_df, aes(x = EDV, y = MAPR)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("MA Participation Rate") + xlab("Emergency Department Visits") + ggtitle("Emergency Department Visits")
+
+D1 <- ggplot(data = as.data.frame(training_df), aes(x = EDV1000, y = MAPR)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("MA Participation Rate") + xlab("EDV \n (per 1000)") + ggtitle("Emergency  Department Visits \n (per 1000)")
+
+A2 <- ggplot(data = training_df, aes(x = NAR, y = HRR)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("Hospital Readmission Rate") + xlab("Acute Hospital Readmissions") + ggtitle("Acute Hospital Readmissions \n Vs \n Hospital Readmission Rate")
+
+B2 <- ggplot(data = training_df, aes(x = NAR, y = EDV)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("EDV") + xlab("Acute Hospital Readmissions") + ggtitle("Acute Hospital Readmissions \n Vs \n Emergency Department Visits")
+
+C2 <- ggplot(data = training_df, aes(x = NAR, y = EDV1000)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("EDV") + xlab("Acute Hospital Readmissions") + ggtitle("Acute Hospital Readmissions \n Vs \n Emergency Department Visits (per 1000)")
+
+D2 <- ggplot(data = training_df, aes(x = HRR, y = EDV)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("EDV") + xlab("Hospital Readmission Rate") + ggtitle("Hospital Readmission Rate \n Vs \n Emergency Department Visits")
+
+E2 <- ggplot(data = training_df, aes(x = HRR, y = EDV1000)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("EDV (per 1000)") + xlab("Hospital Readmission Rate") + ggtitle("Hospital Readmission Rate \n Vs \n Emergency Department Visits (per 1000)")
+
+F2 <- ggplot(data = training_df, aes(x = HRR, y = EDV1000)) + geom_point() + geom_smooth(method='lm', se = F, fullrange = F) + ylab("EDV (per 1000)") + xlab("EDV") + ggtitle("Emergency Department Visits \n Vs \n Emergency Department Visits (per 1000)")
+
+figB <- ggarrange(A1 + rremove('y.text'), B1 + rremove('y.text'), C1 + rremove('y.text'), D1 + rremove('y.text'), labels = c('A','B','C','D'), ncol = 2, nrow = 2)
+
+```
+
+```{r, echo= FALSE}
+annotate_figure(figB,
+                top = text_grob('MA Participation vs Predictors', color = 'goldenrod4', face = 'bold', size = 14), fig.lab='Figure 2', fig.lab.face = 'bold')
+```
+
+
+
+```{r, echo=FALSE}
+## Correlation Tests ##
+co.test<- apply(training_df, 2, function(x,y) cor.test(x,y=training_df[,'MAPR'],method='kendall', alternative = 'greater'))
+
+cor.pval <- lapply(co.test, function(x) x$p.value)
+cor.esti <- lapply(co.test, function(x) x$estimate)
+
+## Collinearity ##
+full_model <- lm(MAPR~., data=training_df)
+vif_scores <- car::vif(full_model)
+
+```
+
+Variable | Acute Hospital Readmission | Hospital Readmission Rate | Emergency Department Visits | EDV (per 1000)
+-------- | -------- | -------- | -------- | --------
+p-value | `r cor.pval$NAR` | `r cor.pval$HRR` | `r cor.pval$EDV` | `r cor.pval$EDV1000`
+tau | `r cor.esti$NAR` | `r cor.esti$HRR` | `r cor.esti$EDV` | `r cor.esti$EDV1000` |
+VIF | `r vif_scores[1]` | `r vif_scores[2]`| `r vif_scores[3]`| `r vif_scores[4]`
+
+Using Kendall's Correlation method, we confirm there to be weak correlation between the outcome and 3 possible predictors, with some significant clusters deviating from the regression line. It is notable that *EDV per 1000* shows a negative correlation with the MA participation and *EDV per 1000*. This makes sense, as a higher rate of participants are enrolled in the Medicare Advantage program they may be more likely to use their benefits and engaged in preventative care.
+
+Acute Hospital Readmission (NAR) and Emergency Department Visits (EDV) each show VIFs > 10 , indicating strong collinearity between these two variables that need to be accounted for.
+
+
+The above information confirms that there are numerous issues with the data that must be resolved before we could begin to fit the model. Each of the variables are NOT normally distributed, there are outliers and collinearity as well.
+
+```{r, echo=FALSE, results=FALSE}
+## Backwards Stepwise ##
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model <- train(MAPR ~., data = training_df,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:4),
+                    trControl = train.control
+                    )
+step.model$results
+step.model$bestTune
+summary(step.model$finalModel)
+coef(step.model$finalModel, 4)
+```
+
+
+```{r, echo=FALSE}
+rm_NAR <- lm(MAPR~ HRR + EDV + EDV1000, data=training_df) # Reduced model w/ Acute Hospital Readmission removed
+rm_EDV <- lm(MAPR~ NAR + HRR + EDV1000, data=training_df) # Reduced model w/ Emergency Department Visits removed
+rm_HRR <- lm(MAPR~ NAR + EDV + EDV1000, data=training_df) # Reduced model w/ Hospital Readmissions Rate removed
+
+summaries <- lapply(list(full_model, rm_NAR, rm_EDV), function(x) summary(x)); names(summaries) <- c('full_model','rm_NAR','rm_EDV')
+mse <- lapply(summaries, function(x) mean(x$residuals^2)); names(mse) <- c('full_model','rm_NAR','rm_EDV')
+r_square <- lapply(summaries, function(x) x$adj.r.squared); names(r_square) <- c('full_model','rm_NAR','rm_EDV')
+aic <- lapply(list(full_model, rm_NAR, rm_EDV), function(x) AIC(x)); names(aic) <- c('full_model','rm_NAR','rm_EDV')
+bic <- lapply(list(full_model, rm_NAR, rm_EDV), function(x) BIC(x)); names(bic) <- c('full_model','rm_NAR','rm_EDV')
+```
+
+Model | MSE | Adjusted R^2^ | AIC | BIC |
+--- | --- | --- | --- | --- |
+Full | `r mse$full_model` |  `r r_square$full_model` | `r aic$full_model` | `r bic$full_model`
+NAR | `r mse$rm_NAR` |  `r r_square$rm_NAR` | `r aic$rm_NAR` | `r bic$rm_NAR`
+EDV | `r mse$rm_EDV` |  `r r_square$rm_EDV` | `r aic$rm_EDV` | `r bic$rm_EDV`
+
+Above is a summary of 3 models, a full model with all predictors and two with either of the problematic variables removed. In comparison to the full model, the adjusted R^2^ from removing NAR remains closest. Upon fitting this reduced model, all of the remaining variables remain statistically significant unlike when we remove EDV instead. As such, we have decided to remove just NAR from the model. 
+
+
+In order to address the significant amount of outliers in the data, we will perform a robust regression with the bisquare weighting function.
+
+```{r, echo=FALSE}
+## Robust Regression and Prediction ##
+robust <- rlm(MAPR~HRR + EDV + EDV1000, data=training_df, psi = psi.bisquare)
+coefficients <- robust$coefficients
+vif_scores <- car::vif(rm_NAR)
+test_df$YHAT <- predict(robust, newdata = test_df)
+test_df$RESI <- test_df$MAPR - test_df$YHAT
+```
+
+Variable | Hospital Readmission Rate | Emergency Department Visits | EDV (per 1000)
+-------- | -------- | -------- | -------- | --------
+Coeff | `r coefficients[1]` | `r coefficients[2]`| `r coefficients[3]`
+VIF | `r vif_scores[1]` | `r vif_scores[2]`| `r vif_scores[3]`
+
+The table above shows that the removal of NAR sufficiently resolves collinearity in the model along with the coefficients for each variable in the robust regression model.
+
+```{r, echo=FALSE}
+## Residuals vs Observed Graphing Plot ##
+
+A3 <- ggplot(data = test_df, aes(x = YHAT, y= RESI)) + geom_point() + ylab("Residuals") + xlab("Fitted") + ggtitle("MA Participation Rate - Residuals vs Fitted") + stat_smooth(method='lm', se=FALSE)
+
+B3 <- ggqqplot(data=test_df, 'RESI') + ggtitle('Normal Q-Q Residuals')
+
+figC <- ggarrange(A3, B3, labels = c('A','B'), ncol = 2, nrow = 1)
+
+annotate_figure(figC,
+                top = text_grob('Final Model Diagnostic Plots', color = 'goldenrod4', face = 'bold', size = 14), fig.lab='Figure 3', fig.lab.face = 'bold')
+
+```
+
+In Fig 3A we can see that there is no pattern in the final fitted model, suggesting that we have a linear relationship between the predictors and outcome. Fig 3B shows that the residuals are largely normally distributed, meaning that are model fits the assumption of normality. 
+
+# Conclusions
+
+Our final model suggests that there is an average increase in the percentage of Medicare participants who are enrolled in an MA Plan as Hospital Readmission Rate changes, but a very small effect from Emergency Department Visits on participation. This is indicative of behaviors where beneficiaries of a MA plan are likely to use their benefits to obtain preventative and secondary healthcare treatment and avoid delaying treatment until a medical emergency. This could be related to the cost-savings benefits of MA plans, most notably the maximum out-of-pocket costs which can ensure that those who are chronically ill seek treatment before delaying until an emergency.
+
+Our model also appeared to show adequate prediction of the MA participation rate based on healthcare utilization parameters. It must be noted however, that a post-hoc analysis of the model formation using backwards step-wise analysis suggested keeping all 4 of the predictor variables of the full-model. This is in despite of the high levels of collinearity that would exist in such a model. Our analyis also may have accounted for outliers in the data by using a robust regression model, but other aspects for accounting for and adjusting for these outliers may have given a more accurate model.
+
+It is worth noting that in our analysis, we included data from Washington D.C.,the U.S. Territories, Alaska and Hawaii which have unique political and geographical features that can skew the data and generated these outliers. Another model specific to the continental US or geographical regions of the US may provide better accuracy in predicting MA participation.
+
+This research shows a clear positive affect on MA plans towards the overall healthcare of those who are unable to obtain private healthcare plans, suggesting further research into evaluating the positive effects on maximum out-of-pocket limitations on medical insurance for those eligible for Medicare and could potentially reflect a need to expand such benefits. In the current political environment, where healthcare coverage and Medicare-For-All are frequently spoken about, this could highlight an aspect of establishing a form of national health insurance that hybridizes public and private entities.

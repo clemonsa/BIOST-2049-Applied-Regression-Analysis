@@ -1,0 +1,139 @@
+---
+title: "DA5_2021_R_Key"
+author: "Arvon Clemons II"
+date: "4/2/2021"
+output:
+  pdf_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Question:  A study was designed to identify variables associated with tumor penetration of prostatic capsule in patients with prostate cancer. Data were collected from an academic affiliated cancer center. For this assignment, the dataset was modified to include 380 patients and a subset of variables from the main study. Of the 374 patients, 151 had a cancer that penetrated the prostatic capsule. These are the same data we used for DA4.
+
+```{r}
+DA4 <- read.csv("../Module 4/DA4.CSV")
+
+# Categorical Variables
+DA4$capsule <- factor(DA4$capsule)
+DA4$race <- factor(DA4$race)
+DA4$dcaps <- factor(DA4$dcaps)
+DA4$dpros <- factor(DA4$dpros)
+```
+
+```{r, echo = FALSE}
+lroc <- function(response, predictor, ...){
+  roc_result <- pROC::roc(response, predictor, ...)
+  
+  se <- function(x, ...) sqrt(stats::var(x, ...)/length(x))
+  
+  cat("number of observations = ",
+      length(c(roc_result$cases, roc_result$controls)),
+      "\narea under ROC curve = ", signif(roc_result$auc, digits = 4),
+      #"\nstd. error = ", se(),
+      "\n95% C.I. = ", pROC::ci(roc_result, method = "delong")[-2])
+  
+  pROC::plot.roc(roc_result, print.auc = T, show.thres = T)
+}
+```
+
+
+## Question 1: 
+
+Perform The Following Tasks
+
+### For interpretability, center the continuous predictors AGE, PSA, VOL, and GLEASON by their median values.
+
+```{r}
+DA4$age_c <- DA4$age - median(DA4$age, na.rm = T)
+DA4$psa_c <- DA4$psa - median(DA4$psa, na.rm = T)
+DA4$vol_c <- DA4$vol - median(DA4$vol, na.rm = T)
+DA4$gleason_c <- DA4$gleason - median(DA4$gleason, na.rm = T)
+```
+
+### Using model 3 from DA4 (outcome=capsule, predictors=i.dpros gleasonc, psac, volc), determine the capability of discrimination between tumor penetration of prostatic capsule.  Generate an ROC curve and C-statistic.  Interpret.
+
+```{r}
+fit3 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c, 
+            family = binomial(link = "logit"), data = DA4)
+
+DA4$pr <- predict(fit3, type = "response")
+
+lroc(DA4$capsule, DA4$pr)
+```
+
+Based on the ROC curves, the AUC is 0.82 indicating the model has an excellent discrimination capability.
+
+### What is the sensitivity and specificity of this model using the probability of predicting tumor penetration=0.50? Interpret.
+
+```{r}
+caret::confusionMatrix(as.factor(as.numeric(DA4$pr > 0.5)), as.factor(DA4$capsule), positive = "1")
+```
+
+Sensitivity=62.3%, the probability that the marker or tumor penetration (dpros, gleason, psa and volume) show a positive result given that a patient did have tumor penetration is about 62%.
+
+Specificity=84.3%, the probability that the marker of tumor penetration (dpros, gleason, psa and volume) show a negative result given that a patient did not have tumor penetration.
+
+## Question 2: 
+
+Now let’s try to predict the results of the digital rectal exam based on our list of possible covariates (race, dcaps, agec, psac, volc, and gleasonc).  Results of the digital rectal exam are coded as 1 = no nodule, 2 = unilobar nodule (left), 3 = unilobar nodule (right), 4 = bilobar nodule.
+
+### Fit this multinomial logistic regression model using no nodule (dpros=1) as the reference category.
+
+```{r}
+multi_fit <- nnet::multinom(dpros ~ dcaps + age_c + psa_c + vol_c + gleason_c + race, data = DA4)
+summary(multi_fit)
+```
+
+### Which covariates seem to be important? Interpret.
+
+```{r}
+z <- summary(multi_fit)$coefficients/summary(multi_fit)$standard.errors
+
+# Calculate the two tailed p-value
+
+(p <- (1 - pnorm(abs(z), 0, 1)) * 2)
+```
+
+From the tests from the output:
+Gleason score is important to unilobar left vs no nodule
+Age and gleason score are important to unilobar right vs no nodule
+DCAPS and Gleason score are important to bilobar nodule vs no nodule
+
+
+### Does this model pass the goodness of fit test?
+
+```{r}
+generalhoslem::logitgof(DA4$dpros, fitted(multi_fit), g = 10, ord = FALSE)
+```
+
+Yes,we FAIL TO REJECT the null hypothesis of no lack of fit and say that our model does fit. (we do not have stat. sig lack of fit).
+
+### Refit the model removing the covariates which don’t seem to be important from part b.
+
+```{r}
+multi_fit2 <- nnet::multinom(dpros ~ dcaps + age_c + gleason_c, data = DA4)
+summary(multi_fit2)
+```
+
+
+
+### Interpret the RRRs for gleasonc and dcaps from this model comparing bilobar nodule to no nodule.
+
+```{r}
+(rrr <- exp(coef(multi_fit2)[,-1]))
+```
+
+The odds of having bilobar nodule vs. no nodule are `r signif(rrr[3,3], digits = 3)` times the same odds for patients with a 1 unit difference in gleasonc.
+
+The odds of having bilobar nodule vs. no nodule among patients with capsular involvement are `r signif(rrr[3,1], digits = 3)` times the same odds among patients with no capsular involvement.
+
+### Assess the goodness of fit of this 
+
+```{r}
+generalhoslem::logitgof(DA4$dpros, fitted(multi_fit2), g = 10, ord = FALSE)
+```
+
+p-value>0.05 so we fail to reject the null hypothesis of no lack of fit and say we have evidence to suggest that our model has a good fit.

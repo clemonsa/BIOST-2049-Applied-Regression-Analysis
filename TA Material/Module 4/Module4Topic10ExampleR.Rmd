@@ -1,0 +1,149 @@
+---
+title: "Module 4 Topic 10 Example"
+output:
+  html_document: 
+    toc: TRUE
+  pdf_document: default
+---
+
+
+Read in the data
+```{r}
+aki <- read.csv('aki.csv') # reads in .csv file
+
+# convert binary variables into factors
+aki$AKI <- factor(aki$AKI)
+aki$preopdiabetes <- factor(aki$preopdiabetes)
+```
+
+## Likelihood Ratio Test
+
+First lets fit the first model and examine it.
+
+```{r}
+summary(fit1 <- glm(gx30day ~ AKI, family = binomial(link = "logit"), data = aki))
+```
+
+From here you can obtain for the predictor `AKI` the z-statistic as well as the p-value, 0.48 and 0.631 respectively.
+
+The coefficients from this output are transformed by the [logit](https://en.wikipedia.org/wiki/Logit) function and the same applies to the confidence interval. To get the Odds Ratio untransformed, like in `STATA` we will apply the `coef()`, `confint.default()`, and `exp()` functions.
+
+```{r}
+exp(fit1$coefficients) # odds ratio for intercept and AKI predictor
+exp(confint.default(fit1)) # 95% confidence interval for the same
+```
+
+For a one-to-one output below is a custom function to format the results in a way similar to `STATA`:
+
+```{r}
+logit_summary <- function(x){
+  stopifnot("glm" %in% class(x)) # input must be of class 'glm'
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- with(x, null.deviance - deviance) # chi-square test statistic
+  McF <- signif(1 - logLik(x)/logLik(glm(as.formula(paste(y, "1", sep = "~")), # McFadden's Pseudo R^2
+                             family = binomial(link = "logit"), data = x$data)), digits = 4)
+  AIC <- x$aic # Akaike information criterion
+  BIC <- (-2 * LL) + (log(length(x$residuals)) * (length(preds) + 1)) # Bayesian Information Criterion
+  pval <- signif(with(x, stats::pchisq(null.deviance - deviance, # p-value of model
+                         df.null - df.residual, lower.tail = FALSE)), digits = 4)
+  
+  mod_stats <- merge(summary(x)$coefficients, exp(confint.default(x)), by = "row.names") # model stats
+  mod_stats$`Odds Ratio` <- exp(mod_stats$Estimate) # add 'Odds Ratio'
+  mod_stats <- subset(mod_stats, select = -Estimate) # drop 'Estimate'
+  mod_stats <- mod_stats[,c(1, ncol(mod_stats),2:(ncol(mod_stats)-1))] # reorder columns
+  
+
+  
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, McF,AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "LR chi2", "Pseudo R^2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+```
+
+```{r}
+logit_summary(fit1)
+```
+
+I hope this is useful for you guys and make it easier to compare to the `STATA` example.
+
+For this course we will use [McFadden's Pseudo R-squared](https://stats.idre.ucla.edu/other/mult-pkg/faq/general/faq-what-are-pseudo-r-squareds/) which is calculated as $R^2_M=1- \frac{ln\hat{L}_{full}}{ln\hat{L}_{null}}$, where $ln\hat{L}_{full}$ is the log-likelihood of the full model and $ln\hat{L}_{null}$ is the log-likelihood of the null model.
+
+```{r}
+fit2 <- glm(gx30day ~ AKI + prbc + ffp, family = binomial(link = "logit"), data = aki)
+
+logit_summary(fit2)
+```
+
+To perform the Likelihood Ratio Test we can utilize the formula on slide 5 from `B2049-Module4Topic10-Example-2021` which is pretty straight forward and input that into `pchisq()`, using the difference in residual df between the two models as `df`.
+
+Or we can use this quick function
+```{r}
+lrt <- function(reduced, full){ # important to provide reduced model in correct argument
+  calc <- stats::anova(reduced, full)
+  LR_chi <- calc$Deviance[2] # Test Statistic
+  DF <- calc$Df[2] # degree of freedom
+  
+  pval <- round(stats::pchisq(q = LR_chi, df = DF, lower.tail = F), digits = 4)
+  
+  cat("chi2(", DF,")=",LR_chi,
+      paste0("\nProb > chi2 = "), pval)
+  
+  # result <- list(LR_chi, DF, pval)
+  # names(result) <- c("LR chi2", "df", "Prob > chi2")
+  # return(result)
+}
+```
+
+Implementing this function returns us the test statistic, degree of freedom, as well as the p-value.
+```{r}
+lrt(fit1, fit2)
+```
+
+## Wald-Test
+
+We will be using the `aod` package
+
+**IMPORTANT** Pay attention to the order of the predictors in the model, since we are testing `prbc` and `ffp` for the argument `Terms` we must enter the numerical order our predictor is in our model. Also recall from the lecture that you must use the *least restricted* model.
+
+```{r}
+library(aod)
+
+wald_stat <- wald.test(b = fit2$coefficients, Sigma = vcov(fit2), Terms = 3:4) # Testing `prbc` & `ffp`
+```
+
+We have been provided the test statistic of `r wald_stat$result$chi2[1]` which like the LRT we could input into `pchisq()` using `df = 2` to calculate our p-value.
+
+A custom function could certainly be made for this, however I think we'll just manually work through this as it is much simpler.
+```{r}
+pchisq(q = 2.17, df = 2, lower.tail = F)
+```
+
+## Comparing non-nested models
+
+```{r}
+fit3 <- glm(AKI ~ ptweight_kg + ammon_pretx, family = binomial(link = "logit"), data = aki)
+
+logit_summary(fit3)
+```
+
+Note that we are handidly provided the AIC and BIC, which are `r logit_summary(fit3)$AIC` and `r logit_summary(fit3)$BIC` respectively.
+
+```{r}
+fit4 <- glm(AKI ~ childscore_pretx + ptweight_kg + preopdiabetes, family = binomial(link = "logit"), data = aki)
+logit_summary(fit4)
+```
+
+We will not replicate slide 10 in R. Just understand that there can be ways to correct for sample size when comparing AIC and BIC of non-nested models. 
+
+If you are interested in doing so in R, you can likely find an example online. More information on logit regression in R can also be found [here](https://stats.idre.ucla.edu/r/dae/logit-regression/)

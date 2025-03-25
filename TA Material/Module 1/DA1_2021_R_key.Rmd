@@ -1,0 +1,135 @@
+---
+title: "DA1_2021_R_key"
+author: "Arvon Clemons II"
+date: "2/2/2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data <- read.csv('DA1.CSV')
+```
+
+Question:**  A quantitative analysis of factors found in high-density lipoprotein (HDL) in 42 samples of human blood serum found three variables thought to be associated with HDL (y).  These variables were total cholesterol level (x1), total triglyceride level (x2) and a component called sinking pre-beta (x3), which was coded as 0 if absent and 1 if present (dummy variable).
+
+Perform appropriate data analyses to answer the following:
+
+a.	Fit separate simple linear regression models for assessing the association of total cholesterol level (x1), total triglyceride level (x2) and sinking pre-beta (x3) with HDL (y).  Using these separate models, test whether x1, x2 or x3 alone statistically significantly predict y.  Interpret your answer.
+
+```{r}
+fit_x1 <- lm(y ~ x1, data = data)
+summary(fit_x1)
+```
+
+```{r}
+fit_x2 <- lm(y ~ x2, data = data)
+summary(fit_x2)
+```
+
+```{r}
+fit_x3 <- lm(y ~ x3, data = data)
+summary(fit_x3)
+```
+
+Looking at the overall F tests of the three models only the model with x3 alone is statistically significant (p=.009). So it appears that sinking pre-beta (x3) is the only variable that is a statistically significant predictor of HDL (y).
+
+b. Fit a multivariable model and test whether x1, x2 and x3 taken together statistically significantly predict y.  Interpret your answer
+
+```{r}
+fit_full <- lm(y ~ x1 + x2 + x3, data = data)
+summary(fit_full)
+```
+
+The overall F test is NOT statistically significant (p=.0568), thus the 3 variables taken together do not significantly add to the prediction of y.
+
+c.	Fit a multivariable and test whether x3 is associated with y after the combined contribution of x1 and x2 is taken into account (i.e., x1 and x1 are already in the model).  Assume no interactions exist.  State the appropriate null hypothesis for this test and interpret the results of the test.
+
+We use the same model as in part b.
+
+The null hypothesis is $H_{0}: \beta_{x3|x1, x2} = 0$   or $H_{0}: \beta_{x3} = 0$  
+
+Using the t-test associated with x3 (this is a variables added last test), we reject the null hypothesis (p=0.013) and conclude that the addition of x3 given x1 and x2 are already present is not equal to 0. In other words, x3 is an important contribution to the model already containing x1 and x2.
+
+d. For pre-sinking beta (x3), compare the coefficient for x3 in model in part c to the simple model in part a.  Do you think there is confounding due to x1 and x2?  Explain.
+
+From model a, the estimated coefficient for x3 is 8.38 and from model c the estimated coefficient for x3 is 8.15.  I would consider this difference to be small so would conclude that there does not seem to be confounding due to x1 and x2. 
+
+e.	Fit a multivariable and test whether the interactions of `x1*x3` and `x2*x3` are simultaneously equal to zero in a model already containing x1, x2 and x3.  Write down the model statement for the model you need to fit to assess this.  State the null hypothesis of the test.  Given the result of the test, what can you conclude about the relationship of y to both x1 and x2 (hint:  remember what an interaction means)?
+
+```{r}
+# Calculate interaction terms
+data$x13 <- data$x1 * data$x3
+data$x23 <- data$x2 * data$x3
+fit_int_full <- lm(y ~ ., data = data) # Using '.' which means all columns not otherwise in the formula
+summary(fit_int_full)
+```
+
+The model is $Y = \beta_{0} + \beta_{1}X_{1} + \beta_{2}X_{2} + \beta_{3}X_{3} + \beta_{4}X_{1}X_{3} + \beta_{5}X_{2}X_{3} + E$
+
+$H_{0}: \beta_{4} = \beta_{5} = 0$
+
+```{r}
+anova(fit_int_full, fit_full) #
+```
+
+We do NOT reject the null hypothesis that the 2 product terms are zero.  We may infer that the relationship of y to x1 and x2 does not change when the value of x3 changes.  The resulting regression lines when x3 changes will be parallel.
+
+f.	Assuming straight line models are appropriate for describing the relationship between HDL (y) and total cholesterol level (x1) for the absence and the presence of sinking pre-beta (x3). Write out a single regression model that specifies two separate lines, one for the absence of sinking pre-beta (x3=0) and one for the presence of sinking pre-beta (x3=1).
+
+The model is $Y = \beta{0} + \beta{1}X1 + \beta{3}X3 + \beta{4}X1X3 + E$
+
+g.	Fit this model in part e. using regress and write out each estimated equations for absence and presence of sinking pre-beta.
+
+```{r}
+fit_int2 <- lm(y ~ x1 + x3 + x13, data = data)
+summary(fit_int2)
+```
+
+
+Estimated equation is:  yhat=52.88-0.03x1-2.86x3+0.04x1x3
+
+For x3=0 → yhat = 52.88-0.03x1-2.86(0)+0.04(0)x1=52.88-0.03x1
+
+For x3=1 → yhat = 52.88-0.03x1-2.86(1)+0.04(1)x1=52.88-0.03x1-2.86(1)+0.04(1)x1 = 
+	= 55.74+0.01x1
+
+h.	Plot the observed data and the fitted lines from part f. for each value of sinking pre-beta (either 2 separate graphs with the same y axes or two plots on one graph (i.e. two plots overlayed)).
+
+```{r}
+data$yhat <- predict(fit_int2) # Predicted Values
+data$x3 <- as.factor(data$x3) # Must turn x3 into a factor
+
+library(ggplot2)
+p <- ggplot(data)
+
+p + aes(x = x1, y = y, colour = x3, shape = x3) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE, formula = y ~ x) +
+  xlab("Total Cholesterol Level") +
+  ylab("HDL") +
+  scale_colour_discrete(name = 'Sinking Pre-Beta',
+                        breaks = c('0','1'),
+                        labels = c('Absent', 'Present'))
+```
+
+i.	Fit the model you need to test for coincidence of the two lines in part e.  Perform the test and interpret.
+
+```{r}
+anova(fit_int2, fit_x1) # Using our new model from part F along w/ the model with only `x1`
+```
+
+The p-value is statistically significant so we reject the null hypothesis of coincidence and conclude that the lines are different.
+
+j.	Fit the model you need to test for parallelism of the two lines in part e.  Perform the test and interpret.
+
+```{r}
+# Using out new model from part F along w/ a model with only `x1` and `x3`
+anova(fit_int2, lm(y ~ x1 + x3, data = data)) 
+```
+

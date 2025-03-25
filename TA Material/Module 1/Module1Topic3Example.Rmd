@@ -1,0 +1,135 @@
+---
+title: "Module 1 Topic 3 Example"
+output:
+  html_document: default
+---
+
+
+Read in the data
+
+```{r}
+data_mod1_t3 = read.csv("Module1Topic3Example.csv")
+```
+
+Create an interaction variable axs = age*sex
+```{r}
+data_mod1_t3$axs = data_mod1_t3$age*data_mod1_t3$sex
+```
+
+
+```{r}
+summary(lm(sbp ~ age + sex + axs, data = data_mod1_t3))
+```
+Alternatively, we can specify the interaction within the model statement.
+```{r}
+fit = lm(sbp ~ age + sex + age:sex, data = data_mod1_t3)
+summary(fit)
+```
+
+
+Compute the fitted values
+```{r}
+data_mod1_t3$yhat = predict(fit)
+```
+
+We will omit the attribute creation for columns.
+
+`factor()` is a R specific data.type used typically for categorical variables.
+
+```{r}
+sapply(data_mod1_t3, class)
+```
+
+We can turn the integer column `sex` into a factor. 
+
+```{r}
+data_mod1_t3$sex_factor = factor(data_mod1_t3$sex, labels = c("male", "female"))
+```
+
+Now we can specify a full factorial of the variables - main effects for each variable and an interaction. For each variable, if it is a numeric variable, it is analyzed as quantitative (with 1 degree of freedom for a main effect), if it is a factor then it is analyzed as a dummy coded variable (with k-1 degrees of freedom for k number of observed levels).
+
+```{r}
+fit2 <- lm(sbp ~ age + sex_factor + age:sex_factor, data = data_mod1_t3)
+summary(fit2)
+```
+
+
+We can see that the `factor` class is supported by many R functions. The summary for a integer `sex` column and a factor `sex` column are different.
+
+```{r}
+summary(data_mod1_t3$sex_factor)
+summary(data_mod1_t3$sex)
+```
+
+Running `table()` on a integer binary column can yield the same results.
+```{r}
+table(data_mod1_t3$sex)
+```
+
+We will demonstrate graphics using R's hugely popular `library(ggplot2)` package. For the remainder of the class, data manipulation will be performed with only base R, and additional functionalities will be imported via external community written packages only when necessary. 
+
+```{r, message=F}
+library(ggplot2)
+```
+
+```{r, message=FALSE, fig.width = 8, fig.height=7}
+ggplot(data = data_mod1_t3, 
+           mapping = aes(x = age, y= sbp)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F) + 
+  facet_wrap(~sex_factor) + 
+  xlab("Age in Years") + ylab("sbp") +
+  theme_bw()
+```
+
+We can plot the two lines on the same panel by simply removing the "facet" and adding a color mapping argument.
+
+```{r, fig.width=9, fig.height=7}
+ggplot(data = data_mod1_t3, 
+           mapping = aes(x = age, y= sbp, color = sex_factor)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F) + 
+  xlab("Age in Years") + ylab("sbp") +
+  theme_bw()
+```
+
+Test for parallelism
+```{r}
+fit_full = lm(sbp ~ age + sex + age:sex, data = data_mod1_t3) # can simply use sbp ~ age*sex
+fit_reduced = lm(sbp ~ age + sex, data = data_mod1_t3)
+anova(fit_full, fit_reduced)
+```
+
+Test for coincidence
+
+```{r}
+fit_reduced2 = lm(sbp ~ age, data = data_mod1_t3)
+anova(fit_full, fit_reduced2)
+```
+
+Confounding assessment
+```{r}
+summary(lm(sbp ~ sex, data = data_mod1_t3))
+```
+
+Fit the model by adding age to see if the coefficient for sex changes
+```{r}
+summary(fit <- lm(sbp ~ age + sex, data = data_mod1_t3))
+```
+
+There is no direct translation of the `margins` command from Stata to R in base R. However, there are several R packages with functionalies that can emulate `margins` in Stata. One such package `library(margins)`, an intended (incomplete) port of Stata's closed source `margins` command. 
+
+Means of sbp for each sex adjusting for age
+```{r}
+mean_age = mean(data_mod1_t3$age)
+predict(object = fit,
+        newdata = data.frame(sex = c(0, 1), 
+                             age = c(mean_age, mean_age)))
+```
+
+Compare those to the unadjusted means
+```{r}
+tapply(X = predict(fit),
+       INDEX = data_mod1_t3$sex,
+       FUN = mean)
+```

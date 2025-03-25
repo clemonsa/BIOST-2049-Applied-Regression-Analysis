@@ -1,0 +1,191 @@
+---
+title: "Module 3 Topic 9 Example"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+Read in the data, same data as topic 7
+```{r}
+df_m3t9 <- read.csv('hersdataDiabetes.csv') # reads in .csv file
+```
+
+```{r}
+summary(fit<-lm(glucose ~ exercise, data = df_m3t9))
+```
+Backward selection with `step()` in base R uses AIC for model selection (Stata stepwise uses p-value). 
+
+```{r}
+# Change the non-binary categorical variables into factors
+df_m3t9$physact <- as.factor(df_m3t9$physact)
+df_m3t9$raceth <- as.factor(df_m3t9$raceth)
+df_m3t9$globrat <- as.factor(df_m3t9$globrat)
+
+
+# It is important to remove missing or "NA" values or step() will give warning messages
+# we are limiting the variables to only those we will be using in our model
+df_m3t9 <- na.omit(df_m3t9[,c("glucose", "exercise" ,"raceth", "age10", "smoking", "drinkany", "physact" ,"globrat", "medcond", "BMI")])
+
+fit_step <- step(lm(glucose ~ exercise + raceth + age10 +  smoking + drinkany + physact + globrat + medcond + BMI, data = df_m3t9),
+     direction = "backward",
+     scope = list(lower = ~ 1, upper = ~ exercise + raceth + age10 +  smoking + drinkany + physact + globrat + medcond + BMI))
+```
+
+```{r}
+summary(fit_step)
+```
+The model selected above is the same as that of slide 6 from the Module 3 Topic 9 Example, R automatically keeps all levels of factor variables and doesn't require arguments to do so.
+
+
+We will create a 66.6% training set, and a 33.3% testing set.
+```{r}
+set.seed(123)
+i <- sample(1:nrow(df_m3t9), nrow(df_m3t9)*2/3)
+df_test <- df_m3t9[-i,]
+df_train <- df_m3t9[i,]
+
+# Supressing the printing
+fit_train <- step(lm(glucose ~ exercise + raceth + smoking + drinkany + physact + globrat + medcond, data = df_train),
+     direction = "backward",
+     scope = list(lower = ~ 1, upper = ~ exercise + raceth + smoking + drinkany + physact + globrat + medcond),
+     trace = F)
+
+# training model summary
+summary(fit_train)
+
+# Create a list to store all the values
+list_pred <- list(
+           glucose_train = df_train$glucose,
+           yhat_train = predict(fit_train),
+           glucose_test = df_test$glucose,
+           yhat_test = predict(fit_train, newdata = df_test))
+
+```
+
+Do not be alarmed that the chosen model differ from Slide 8 of the Module 3 Topic 9 Example PowerPoint. This is normal and is likely a result of the differing splits of the training/testing data between R and STATA.
+
+```{r}
+# Create a summary table like the Stata one
+
+mat = do.call(rbind, lapply(list_pred, function(x) {
+    Obs = length(x);
+    Mean = mean(x);
+    StdDev = sd(x);
+    Min = min(x);
+    Max = max(x)
+    cbind(Obs, Mean, StdDev, Min, Max)
+}))
+
+rownames(mat) = names(list_pred)
+print(mat)
+
+```
+
+It appears that the STATA didn't remove some observations w/ missing values in the variables we are interested in. To remove those observations in the `STATA` example use the command `drop if missing(glucose, exercise, raceth, age10, smoking, drinkany, physact, globrat, medcond, BMI)` before running `regress` to get a 68/32 split.
+
+```{r}
+# Correlation between glucose and yhat in training
+cor(list_pred[[1]], list_pred[[2]])
+```
+
+```{r}
+# Correlation between glucose and yhat in test
+cor(list_pred[[3]], list_pred[[4]])
+```
+
+Shrinkage estimate is `r round(cor(list_pred[[1]], list_pred[[2]]), 3)`^2 - `r round(cor(list_pred[[3]], list_pred[[4]]),3)`^2 = `r round(cor(list_pred[[1]], list_pred[[2]])^2 - cor(list_pred[[3]], list_pred[[4]])^2, 3)`.
+
+We will fit elastic net family regression with `library(glmnet)`. `library(glmnetUtils)` adds some quality of life feature to glmnet, such as using formula ~ syntax. 
+```{r, message=F}
+library(glmnet)
+library(glmnetUtils)
+
+# Split the data 50/50
+set.seed(87654321)
+i <- sample(1:nrow(df_m3t9), nrow(df_m3t9)*1/2)
+df_test <- df_m3t9[-i,]
+df_train <- df_m3t9[i,]
+
+# alpha = 1 -> lasso
+# alpha = 0 -> ridge
+# alpha in (0, 1) -> elastic net
+cv_fit <- cv.glmnet(glucose ~ exercise + raceth + age10 + smoking + drinkany + physact + globrat + medcond + BMI, data = df_train, nfolds = 10, alpha = 1)
+cv_fit
+```
+
+From the documentation: https://cran.r-project.org/web/packages/glmnet/glmnet.pdf
+
+lambda.min: value of lambda that gives minimum cvm.
+
+```{r}
+cv_fit$lambda.min
+```
+lambda.1se: largest value of lambda such that error is within 1 standard error of the minimum. (resulting in a more parsimonious model with fewer parameters)
+
+```{r}
+cv_fit$lambda.1se
+```
+We can look at a plot of the MSE vs $\lambda$ (log), first dashed line from left is the lambda.min, second dashed is the lambda.1se.
+
+```{r}
+plot(cv_fit)
+```
+
+Plot $R^2$ versus $\lambda$. 
+
+```{r}
+plot(log(cv_fit$lambda), cv_fit$glmnet.fit$dev.ratio,
+     xlab = expression(log(lambda)),, ylab = expression(R^2))
+```
+
+```{r}
+cv_fit$glmnet.fit
+```
+
+For fitting elastic net models, `cva.glmnet` will cross-validate for $\lambda$ and $\alpha$ at the same time.
+
+```{r}
+cv_fit_el <- cva.glmnet(glucose ~ exercise + raceth + age10 + smoking + drinkany + physact + globrat + medcond + BMI, data = df_train, nfolds = 10)
+```
+
+We can plot the MSE vs $\lambda$ (log) for various values of $\alpha$.
+
+```{r}
+plot(cv_fit_el)
+```
+
+
+To plot the curve for a specific $\alpha$, the fitted model can be pulled out by index. At index 1 is the ridge fit with $\alpha$ = 0.
+
+```{r}
+# List of alpha
+cv_fit_el$alpha
+# Get the first alpha = 0, ridge
+plot(cv_fit_el$modlist[[1]])
+```
+
+Generic methods can be applied to these models. For coefficients, the method `coef()` can be used. (`?coef.cva.glmnet` and `?coef.cv.glmnet`)
+
+```{r}
+methods(class = class(cv_fit_el)[2])
+# Lasso fit
+coef(cv_fit_el, alpha = 1, s = "lambda.min")
+```
+
+```{r}
+# Ridge fit
+coef(cv_fit_el, alpha = 0, s = "lambda.min")
+```
+
+
+Plot  $R^2$  versus $\lambda$ (log) for $\alpha$ = 0.
+
+```{r}
+plot(log(cv_fit_el$modlist[[1]]$lambda), cv_fit_el$modlist[[1]]$glmnet.fit$dev.ratio,
+     xlab = expression(log(lambda)), ylab = expression(R^2))
+```
+
+
+
+

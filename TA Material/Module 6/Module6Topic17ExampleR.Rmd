@@ -1,0 +1,362 @@
+---
+title: "Module 6 Topic 17 Example"
+output:
+  html_document:
+    toc: TRUE
+---
+
+## Libraries
+```{r}
+library(ggplot2)
+```
+
+Read in the data
+```{r}
+chd <- read.csv("./chd.csv")
+arsenic <- read.csv("./arsenic.csv")
+
+# factor categorical variables
+chd$bp <- factor(chd$bp)
+chd$behave <- factor(chd$behave)
+arsenic$age <- factor(arsenic$age)
+arsenic$calper <- factor(arsenic$calper)
+arsenic$exp <- factor(arsenic$exp)
+```
+
+```{r log_summary, include = FALSE}
+log_summary <- function(x, robust = FALSE, irr = FALSE){
+  stopifnot("glm" %in% class(x), # input must be of class 'glm'
+            is.logical(robust)) # robust argument must be logical
+  
+  waldChi2 <- function(x){
+    # Get the coefficients of the non-intercept parameters 
+    b <- matrix(coef(x)[2:length(coef(x))])
+    # Get the covariance matrix of terms in b
+    V <- vcov(x)[2:nrow(vcov(x)),2:nrow(vcov(x))]
+    # Create the R matrix for the 3 linear hypothesis
+    R <- matrix(0, nrow = nrow(b), ncol = nrow(b))
+    # Only the diagonal in R needs to be filled in
+    diag(R) <- 1
+    # Create a vector of values Rb = r
+    r <- 0
+    # Calculate Wald statistics
+    chi2 <- as.numeric(t((R%*%b - r)) %*% (solve(R %*% V %*% t(R))) %*% (R%*%b - r))
+    
+    return(chi2)
+  }
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- if(robust == FALSE){
+    with(x, null.deviance - deviance) # LR chi-square test statistic
+  }
+  else(
+    waldChi2(x) # Wald chi-square test statistic
+  )
+  McF <- signif(1 - stats::logLik(x)/stats::logLik(glm(as.formula(paste(y, "1", sep = "~")), # McFadden's Pseudo R^2
+                                                       family = poisson(link = "log"), data = x$data)), digits = 4)
+  AIC <- stats::AIC(x) # Akaike information criterion
+  BIC <- stats::BIC(x) # Bayesian Information Criterion
+  pval <- round(with(x, stats::pchisq(tStat, # p-value of model
+                                      df.null - df.residual, lower.tail = FALSE)), digits = 4)
+  
+  mod_stats <- merge(summary(x)$coefficients, confint.default(x),
+                     by = "row.names", sort = FALSE) # model stats
+  
+  if(robust == TRUE){
+    rse <- sqrt(diag(sandwich::vcovHC(x, type="HC0"))) # Robust Standard Error
+    
+    mod_stats <- subset(mod_stats,
+                        select = -3) # drop 'Std. Error'
+    
+    # robust statistics
+    mod_stats$`z value` <- round(coef(x) / rse, digits = 2)
+    mod_stats$`Pr(>|z|)` <-  round(2 * stats::pnorm(abs(stats::coef(x)/rse), lower.tail=FALSE), 
+                                   digits = 3)
+    mod_stats$`2.5 %` <- stats::coef(x) - stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`97.5 %` <- stats::coef(x) + stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`Robust Std. Error` <- rse # add 'Robust Std. Error'
+    mod_stats <- mod_stats[,c(1:2, ncol(mod_stats),3:(ncol(mod_stats)-1))] # reorder columns
+  }
+  
+  if(irr == TRUE){
+    mod_stats$Estimate <- exp(mod_stats$Estimate)
+    mod_stats$`2.5 %` <- exp(mod_stats$`2.5 %`)
+    mod_stats$`97.5 %` <- exp(mod_stats$`97.5 %`)
+    # mod_stats$`Robust Std. Error` <- msm::deltamethod(list(~ exp(x1), ~ exp(x2), ~ exp(x3), ~ exp(x4)), coef(x),
+    #                                sandwich::vcovHC(x, type="HC0"))
+    
+    names(mod_stats) <- c("Row.names", "IRR", "Delta Std. Error",
+                          "z value", "Pr(>|z|)", "2.5 %", "97.5 %")
+  }
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, McF, AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "chi2", "Pseudo R^2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+
+# To Do
+## Fix Robust Std. Error using Delta Method when arg 'irr = TRUE'
+## Fix Pseudo R^2 when using Poisson Regression model w/ offset
+```
+
+```{r poissonGOF, include = FALSE}
+poisson_GOF <- function(x, type = c("deviance","pearson")){
+  if(missing(type)){
+    type <- "deviance" # default arg 'type = "deviance"'
+  }
+  stopifnot(class(x)[1] == "glm", # input must be of class 'glm'
+            class(type) == "character", # type arg must be 'character'
+            type == "deviance" | type == "pearson")
+  
+  if(type == "deviance"){
+    # Deviance based likelihood ratio test: $\chi^2_D$ 
+    cat("Goodness-of-fit chi2 = ", x$deviance,
+        paste0("\nProb > chi2(",x$df.residual,") = "), pchisq(x$deviance, df=x$df.residual, lower.tail = F))
+  }
+  if(type == "pearson"){
+    # Pearson goodness of fit: $\chi^2_P$
+    y <- as.character(x$formula[2]) # outcome variable
+    y_j <- x$y
+    e_ep_j <- predict(x, type = "response")
+    cat("Goodness-of-fit chi2 = ", sum((y_j - e_ep_j)^2/e_ep_j),
+        paste0("\nProb > chi2(",x$df.residual,") = "),
+        pchisq(sum((y_j - e_ep_j)^2/e_ep_j), df=x$df.residual, lower.tail = F))
+  }
+}
+```
+
+
+## Incidence of CHD and Associated Risk Factors
+```{r model 1}
+fit1 <- glm(chd ~ smoke, family = poisson(link = "log"),
+            data = chd, offset =  log(pyrs))
+```
+
+```{r, eval = FALSE}
+# Alternative method of fitting w/ offset
+fit1 <- glm(chd ~ smoke + offset(log(pyrs)),
+family = poisson(link = "log"), data = chd)
+```
+
+```{r model 1 summary}
+log_summary(fit1)
+```
+
+*Note: For Poisson Regression models using offsets, it appears McFadden's R^2 will differ from STATA's output*
+
+The estimate for $\beta_{1}$ is 0.0318 and is statistically significantly different from zero $p < 0.0001$.  
+
+This says that increases in the exposure (i.e., smoking) increases the log expected rate of CHD.  
+
+Another way to say this is the expected rate of CHD for those who smoke 20 cigarettes per day is estimated to be $\exp(.0318 \times 20)=1.88$ or almost twice as high as the rate of CHD for non-smokers.
+
+```{r model 2}
+fit2 <- glm(chd ~ smoke + bp + behave + offset(log(pyrs)),
+family = poisson(link = "log"), data = chd)
+
+log_summary(fit2)
+```
+
+```{r significance test}
+test <- anova(fit1, fit2) # obtain Test Statistic
+pchisq(test$Deviance, test$Df, lower.tail = FALSE)[2] # obtain p-value
+```
+
+The simultaneous addition of blood pressure and behavior is statistically significant.  
+
+Pseudo R2 is much higher in this model compared to the model with smoke only.
+
+The coefficient for smoking has decreased from 0.0318 to 0.0273 but is still statistically significant.
+
+The adjusted rate of CHD (controlling for BP and behavior) for those that smoke 20 cigarettes per day is estimated to be $\exp(.0273\times 20)=1.70$ times higher than the rate of CHD for non-smokers.
+
+There are also strong relationships of CHD with BP and behavior.  The rate ratio comparing type A behavior to type B is 2.12 ($\exp(.7526)$).  
+
+This means that the rate of CHD among type A subjects is approximately 2 times that of type B subjects after controlling for smoking status and BP.
+
+### Additional Interpretations
+
+Fitted log rate of CHD for a type A non-smoker without high bp:  $\log \mathbb{E}(\text{CHD}|\text{type A}) = -5.42 + 0.75$
+
+Fitted log rate of CHD for an otherwise similar type B person: 
+$\log \mathbb{E}(\text{CHD}|\text{type A}) = -5.42$ 
+
+$\log \mathbb{E}(\text{CHD}|\text{type A})-\log \mathbb{E}(\text{CHD}|\text{not type A})=0.75$ which is: 
+$\log [\mathbb{E}(\text{CHD}|\text{type A})/\mathbb{E}(\text{CHD}|\text{not type A})] = \log{RR}$
+and $RR = \exp(0.75) = 2.12$
+
+“the estimated (incidence) rate ratio of CHD for a Type A personality relative to an otherwise similar non-Type A person is $\exp(0.75) = 2.12$”
+
+The fitted baseline rate of CHD is $\exp(-5.42) = 0.0044$ (“4.4 per 1000 person-years”)
+
+Note, baseline rate = rate for “baseline subjects” = rate for non-smoker, low blood pressure, and non-Type A people.
+
+Example interpretation for smoking:  $\exp(0.027\times20)$ is the IRR of a 20-29 cigarettes/day smoker relative to an otherwise similar non-smoker
+
+What is the estimated RR of a Type A 20-29 cigarettes/day smoker compared to Type B 30+ cigs/day smoker?
+
+Fitted log rate of CHD for a type A 20-29 cigarettes/day smoker:  
+	$\log \mathbb{E}(\text{rateA}) = -5.42 + 0.75+(.0273\times20)$
+
+Fitted log rate of CHD for a type B 30+ cigs/day smoker: 
+	$\log \mathbb{E}(\text{rateB}) = -5.42 +(.0273\times30)$
+
+$$\log \mathbb{E}(\text{rateA})-\log \mathbb{E}(\text{rateB})=0.75 +(.0273\times20) - (.0273\times30)= .75+.0273(-10)$$
+
+$$\log [\mathbb{E}(\text{rateA})/\mathbb{E}(\text{rateB})]=0.48$$
+
+$$\text{IRR}=\exp(0.48)=1.62$$
+
+### Easy Way To Calculate Linear Combination
+
+Using the `glht` function from the `multcomp` package, we can perform a linear combination. Since the `glht` function doesn't allow entry of the same variable multiple times, we must use $\text{smoke}\times -10 = \text{smoke}\times 20 - \text{smoke}\times30$
+```{r glht, eval = FALSE}
+lin <- multcomp::glht(fit2, linfct = c("behave1 + (smoke * -10) = 0")) # glht object
+(linSummary <- summary(lin))
+confint(linSummary)
+```
+
+To get the IRR we can exponentiate the Estimate $\exp(0.4791) = 1.614643$ using the `exp()` function. In turn you will have to also use `exp()` on the confidence intervals.
+```{r IRR, eval = FALSE}
+exp(confint(linSummary)$confint)
+```
+
+I have generalized the above into a custom function similar to `lincom` from STATA for ease of use:
+```{r lincom}
+lincom <- function(x, linfct, exp = FALSE, ...){
+  stopifnot("glm" %in% class(x), # input must be of class 'glm'
+            is.logical(exp))  # exp argument must be logical
+  
+  linComb <- multcomp::glht(x, linfct, ...)
+  linSummary <- summary(linComb)
+  df <- setNames(data.frame(Estimate = linSummary$test$coefficients,
+             sigma = linSummary$test$sigma,
+             z = linSummary$test$tstat,
+             pval= linSummary$test$pvalues),
+           c("Estimate", "Std. Err", "z", "P>|z|"))
+  Confint <- stats::confint(linSummary)$confint[,2:3]
+  Confint <- matrix(Confint, ncol = 2)
+  colnames(Confint) <- c("2.5 %", "97.5 %")
+  df <- cbind(df, Confint)
+  
+  if(exp == TRUE){
+    df <- apply(df[c(1, 5:6)], 2, exp)
+  }
+  return(df)
+}
+```
+
+```{r}
+lincom(fit2, linfct = c("behave1 + (smoke * -10) = 0"))
+```
+
+```{r}
+lincom(fit2, linfct = c("behave1 + (smoke * -10) = 0"), exp = TRUE)
+```
+
+## Respiratory Cancer Mortality
+
+```{r model 3}
+fit3 <- glm(y ~ age + calper + exp, family = poisson(link = "log"),
+            data = arsenic, offset =  log(n))
+log_summary(fit3, irr = T)$results
+```
+
+Adjusted for age and period, the estimated rate ratio of for exposed arsenic workers compared to unexposed workers in the same age/time cell is 3.04
+
+Estimated rate ratio for exposed workers 50-59 years old in 1960-69 compared to unexposed workers 60-69 years old in 1970-77
+
+```{r}
+log_summary(fit3)$results
+```
+
+Estimated rate for exposed workers 50-59 years old in 1960-69:
+	$\exp(-8.037+1.389+.700+1.113)$
+
+Estimated rate for unexposed workers 60-69 years old in 1970-77:
+	$\exp(-8.037+2.103+.780)$
+
+$\text{Rate ratio}=\exp(1.389+.700+1.113-2.103-.780)=\exp(.319)=1.376$
+
+### Using lincom
+
+```{r}
+lincom(fit3, linfct = c("exp1 + age2 + calper3 - age3 - calper4 = 0"))
+```
+
+```{r}
+lincom(fit3, linfct = c("exp1 + age2 + calper3 - age3 - calper4 = 0"), exp = T)
+```
+
+### Structural Zeroes
+
+```{r}
+fit4 <- glm(y ~ exp + age*calper, family = poisson(link = "log"),
+            data = arsenic, offset =  log(n))
+log_summary(fit4)
+```
+
+
+Does this model fit the data well?
+
+```{r}
+poisson_GOF(fit3)
+```
+
+
+```{r}
+poisson_GOF(fit3, type = "pearson")
+```
+
+### Adjusted Residuals
+
+```{r}
+arsenic$resid <- resid(fit3, type = "pearson")
+arsenic$hat <- hatvalues(fit3)
+arsenic$dist <- cooks.distance(fit3)
+arsenic$adjres <- arsenic$resid / sqrt(1 - arsenic$hat)
+arsenic$dhat <- predict.glm(fit3, type = "response")
+```
+
+Check to see if these are normally distributed to see if our model holds
+
+```{r}
+p <- ggplot(arsenic)
+
+p + aes(x = adjres) +
+  geom_histogram(binwidth = 1, colour = "black", fill = "khaki", aes(y = ..density..)) +
+  stat_function(fun = dnorm, colour = "darkblue") + 
+  labs(x = "adjusted residuals") +
+  theme_bw()
+```
+
+```{r}
+p + aes(sample = adjres) +
+  geom_qq(colour = "darkblue") +
+  geom_qq_line(colour = "darkgreen") +
+  labs(x = "inverse normal", y = "adjusted residuals") +
+  theme_bw()
+```
+
+Plot of residuals vs the fitted counts to check the mean=variance assumption of the Poisson model.  
+
+These are weighted by Cook’s Distance which is a measure of a points influence on the model.
+
+```{r}
+p + aes(x = dhat, y = adjres) +
+  geom_point(shape = 16, aes(size = dist), colour = 'darkblue') +
+  labs(x = "Fitted Values", y = "Adjusted Residuals", size = "Cook's D",
+       title = "Adjusted Residuals vs Fitted Values") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  theme(legend.title = element_blank()) +
+  theme_bw()
+```

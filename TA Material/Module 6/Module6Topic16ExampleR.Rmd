@@ -1,0 +1,260 @@
+---
+title: "Module 6 Topic 16 Example"
+output:
+  html_document:
+    toc: TRUE
+---
+
+```{r}
+library(ggplot2)
+```
+
+
+## Student Awards at Local High School
+
+Read in the data and describe. We will be using the `psych` package which has many useful descriptive statistics functions.
+```{r}
+awards <- read.csv('awards.csv') # reads in .csv file
+
+# description using `psych` package
+psych::describe(awards, fast = TRUE)
+
+# convert categorical variables into factors
+awards$prog <- factor(awards$prog)
+
+# order by id
+#awards <- awards[order(awards$id), ]
+
+# recode `prog` values
+levels(awards$prog) <- c("general", "academic", "vocation")
+```
+
+There are 200 students in the sample. Remember the Poisson regression model assumes the mean is equal to the variance conditioned on the predictor variables. The unconditional mean count of awards is 0.63.  The unconditional variance is $(1.05)^2 = 1.10$. Not equal, but close enough.
+
+```{r}
+# num_awards by program
+progStats <- psych::describeBy(num_awards ~ prog, mat = TRUE, data = awards, fast = TRUE)
+progStats[, c('group1','mean', 'sd', 'n')] # subset data.frame
+colSums(progStats[, c('n', 'mean', 'sd')]) # Totals
+```
+
+The average number of awards differs by program so the model using program to predict number of awards seems to be a good choice.  
+
+Also the means and variances within each program type are similar.
+
+## Assessing Shape of Outcome
+```{r}
+p <- ggplot(awards)
+
+p + aes(x = num_awards) +
+  geom_bar() +
+  theme_bw()
+```
+
+Number of awards appears to follow a Poisson distribution.
+
+## Poisson Regression
+
+```{r}
+fit1 <- glm(num_awards ~ prog + math, family="poisson", data=awards)
+```
+
+Recall the `logit_summary` function from Module 4, I have created a similar function to replicate the output from a poisson regression summary in STATA. This function is dependent on the `sandwich` package and requires it to be installed.
+
+```{r log_summary}
+log_summary <- function(x, robust = FALSE, irr = FALSE){
+  stopifnot("glm" %in% class(x), # input must be of class 'glm'
+            is.logical(robust)) # robust argument must be logical
+  
+  waldChi2 <- function(x){
+    # Get the coefficients of the non-intercept parameters 
+    b <- matrix(coef(x)[2:length(coef(x))])
+    # Get the covariance matrix of terms in b
+    V <- vcov(x)[2:nrow(vcov(x)),2:nrow(vcov(x))]
+    # Create the R matrix for the 3 linear hypothesis
+    R <- matrix(0, nrow = nrow(b), ncol = nrow(b))
+    # Only the diagonal in R needs to be filled in
+    diag(R) <- 1
+    # Create a vector of values Rb = r
+    r <- 0
+    # Calculate Wald statistics
+    chi2 <- as.numeric(t((R%*%b - r)) %*% (solve(R %*% V %*% t(R))) %*% (R%*%b - r))
+    
+    return(chi2)
+  }
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- if(robust == FALSE){
+    with(x, null.deviance - deviance) # LR chi-square test statistic
+  }
+  else(
+    waldChi2(x) # Wald chi-square test statistic
+  )
+  McF <- signif(1 - stats::logLik(x)/stats::logLik(glm(as.formula(paste(y, "1", sep = "~")), # McFadden's Pseudo R^2
+                                                       family = poisson(link = "log"), data = x$data)), digits = 4)
+  AIC <- stats::AIC(x) # Akaike information criterion
+  BIC <- stats::BIC(x) # Bayesian Information Criterion
+  pval <- round(with(x, stats::pchisq(tStat, # p-value of model
+                                      df.null - df.residual, lower.tail = FALSE)), digits = 4)
+  
+  mod_stats <- merge(summary(x)$coefficients, confint.default(x),
+                     by = "row.names", sort = FALSE) # model stats
+  
+  if(robust == TRUE){
+    rse <- sqrt(diag(sandwich::vcovHC(x, type="HC0"))) # Robust Standard Error
+    
+    mod_stats <- subset(mod_stats,
+                        select = -3) # drop 'Std. Error'
+    
+    # robust statistics
+    mod_stats$`z value` <- round(coef(x) / rse, digits = 2)
+    mod_stats$`Pr(>|z|)` <-  round(2 * stats::pnorm(abs(stats::coef(x)/rse), lower.tail=FALSE), 
+                                   digits = 3)
+    mod_stats$`2.5 %` <- stats::coef(x) - stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`97.5 %` <- stats::coef(x) + stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`Robust Std. Error` <- rse # add 'Robust Std. Error'
+    mod_stats <- mod_stats[,c(1:2, ncol(mod_stats),3:(ncol(mod_stats)-1))] # reorder columns
+  }
+  
+  if(irr == TRUE){
+    mod_stats$Estimate <- exp(mod_stats$Estimate)
+    mod_stats$`2.5 %` <- exp(mod_stats$`2.5 %`)
+    mod_stats$`97.5 %` <- exp(mod_stats$`97.5 %`)
+    # mod_stats$`Robust Std. Error` <- msm::deltamethod(list(~ exp(x1), ~ exp(x2), ~ exp(x3), ~ exp(x4)), coef(x),
+    #                                sandwich::vcovHC(x, type="HC0"))
+    
+    names(mod_stats) <- c("Row.names", "IRR", "Delta Std. Error",
+                          "z value", "Pr(>|z|)", "2.5 %", "97.5 %")
+  }
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, McF, AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "chi2", "Pseudo R^2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+
+# To Do
+## Fix Robust Std. Error using Delta Method when arg 'irr = TRUE'
+## Fix Pseudo R^2 when using Poisson Regression model w/ offset
+```
+
+```{r}
+log_summary(fit1, robust = TRUE)
+```
+
+
+To learn more information about Poisson Regression using R refer to [here](https://stats.idre.ucla.edu/r/dae/poisson-regression/).
+
+## Testing Importance of Program
+
+```{r}
+fit2 <- update(fit1, . ~ . - prog) # fits new model w/o 'prog'
+anova(fit2, fit1, test = "Chisq")
+```
+
+Taken together, the type of program is a statistically significant predictor of `num_awards`.  
+
+From the previous output, it looks as if the academic program is the strongest predictor.
+
+## Assess Goodness-Of-Fit
+
+For Poisson Regression there are two kinds of Goodness-Of-Fit tests, Deviance and Pearson's which are both within the $\chi^2$ distribution.
+
+Below is a function to allow either kind of test, Slide 8 uses the Deviance GOF which is the default type.
+
+```{r}
+poisson_GOF <- function(x, type = c("deviance","pearson")){
+  if(missing(type)){
+    type <- "deviance" # default arg 'type = "deviance"'
+  }
+  stopifnot(class(x)[1] == "glm", # input must be of class 'glm'
+            class(type) == "character", # type arg must be 'character'
+            type == "deviance" | type == "pearson")
+  
+  if(type == "deviance"){
+    # Deviance based likelihood ratio test: $\chi^2_D$ 
+    cat("Goodness-of-fit chi2 = ", x$deviance,
+        paste0("\nProb > chi2(",x$df.residual,") = "), pchisq(x$deviance, df=x$df.residual, lower.tail = F))
+  }
+  if(type == "pearson"){
+    # Pearson goodness of fit: $\chi^2_P$
+    y <- as.character(x$formula[2]) # outcome variable
+    y_j <- x$y
+    e_ep_j <- predict(x, type = "response")
+    cat("Goodness-of-fit chi2 = ", sum((y_j - e_ep_j)^2/e_ep_j),
+        paste0("\nProb > chi2(",x$df.residual,") = "),
+        pchisq(sum((y_j - e_ep_j)^2/e_ep_j), df=x$df.residual, lower.tail = F))
+  }
+}
+```
+
+```{r}
+poisson_GOF(fit1)
+```
+
+```{r, eval = FALSE}
+poisson_GOF(fit1, type = "pearson") # to use Pearson's method
+```
+
+The model fits well because the GOF test is not statistically significant.
+
+## Different Interpretation
+
+```{r}
+# set 'irr' argument to TRUE to get inidence rate ratio
+log_summary(fit1, irr = T)$results 
+```
+
+The incident rate ratios (IRRs) are the exponentiated beta coefficients.
+
+The incident rate of awards for the academic program is 2.96 times the incident rate for the general program.  
+
+The incident rate of awards for the vocational program is 1.45 times the incident rate for the general program holding the other variables constant.  
+
+The percent change in the incident rate of awards is an increase of 7% for every unit increase in math.
+
+## Predicting Counts
+
+```{r}
+newData <- data.frame(math = mean(awards$math, na.rm = TRUE),
+                      prog = factor(1:3, levels = 1:3, labels = levels(awards$prog)))
+
+predict.glm(fit1, newdata = newData, type = 'response', se.fit = TRUE)
+```
+
+The predicted number of awards for the general program is about .21, holding math at its mean.  
+
+The predicted number of awards for the academic program is higher at .62, and the predicted number of awards for the vocational program is about .31. 
+
+The predicted count of the academic program is (.625/.211) = 2.96 times higher than the predicted count for the general program.   Does this look familiar? (HINT:  see the last section `Different Interpretation`)
+
+
+Slide 11 will not be replicatd in R as there isn't a convenient `margins` like method to predict counts for `math` ranging 35 - 70 while holding `prog` constant.
+
+Slide 12 is redundant thanks to the `log_summary` function which provides various statistics
+
+## Plotting Predicted Counts by Program
+
+```{r}
+awards$yhat <- predict.glm(fit1, type = 'response')
+
+p <- ggplot(awards)
+
+p + aes(x = math, y = yhat, colour = prog) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Comparison of Program Predicted Awards",
+       x = "Math Score", y = "Predicted Count",
+       colour = "Program") +
+  theme_bw()
+```
+
+Looks like the number of awards is higher for the academic program and increases steeper than the other programs as math scores increase.

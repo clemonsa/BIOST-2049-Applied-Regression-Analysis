@@ -1,0 +1,174 @@
+---
+title: "Module 3 Topic 7 Example"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Splines, Smoothers
+
+
+Read in the data
+```{r}
+df_m3t7 <- read.csv('hersdataDiabetes.csv') # reads in .csv file
+```
+
+
+Compute descriptive statistics
+```{r}
+summary(df_m3t7[,c("nonwhite", "smoking", "drinkany", "BMI", "HDL")])
+```
+Fitting a simple linear model for HDL and BMI controlling for age10, nonwhite, smoking and drinkany
+```{r}
+summary(fit <- lm(HDL ~ 1 + BMI + age10 + nonwhite + smoking + drinkany, data = df_m3t7))
+
+# Re-use the vif function from topic 6
+
+f_calculate_vif <- function(fit) {v <- c(v <- car::vif(fit));m <- cbind(v, 1/v);colnames(m) <- c("VIF", "1/VIF");print(m);cat("Mean VIF: ", mean(v))}
+f_calculate_vif(fit)
+```
+Let’s look at the component plus residual plot, one implementation of this can be found in `library(car)`
+
+```{r, message=FALSE}
+library(car)
+crPlots(fit, terms = ~BMI)
+```
+
+Stata's gladder is re-implemented in `library(describedata)`.
+```{r, warning=F}
+library(describedata)
+gladder(resid(fit))
+```
+
+
+Stata's mkspline is re-implemented in `library(lspline)`.
+
+```{r}
+library(lspline)
+bmisplines <- qlspline(df_m3t7$BMI, q = 5, na.rm = TRUE, marginal = TRUE)
+bmisplines <- as.data.frame(bmisplines)
+names(bmisplines) <- paste0("bmispline", 1:5)
+df_m3t7 = cbind(df_m3t7, bmisplines)
+```
+
+Now let’s use linear splines
+```{r}
+summary(fit2 <- lm(HDL ~ 1 + bmispline1 + bmispline2 + bmispline3 + bmispline4 + bmispline5 + age10 + nonwhite + smoking + drinkany, data = df_m3t7, na.action=na.exclude))
+```
+
+
+For the overall test for nonlinearity:
+```{r}
+fit3 = lm(HDL ~ 1 + bmispline1 + age10 + nonwhite + smoking + drinkany, data = df_m3t7)
+anova(fit2, fit3)
+```
+
+Test for bmispline1 = 0, bmispline2 = 0
+```{r}
+fit4 = lm(HDL ~ 1 + bmispline3 + bmispline4 + 
+    bmispline5 + age10 + nonwhite + smoking + drinkany, data = df_m3t7)
+anova(fit2, fit4)
+```
+
+
+Test for bmispline2 = 0, bmispline3 = 0
+```{r}
+fit5 = lm(HDL ~ 1 + bmispline1 + bmispline4 + 
+    bmispline5 + age10 + nonwhite + smoking + drinkany, data = df_m3t7)
+anova(fit2, fit5)
+```
+
+
+Test for bmispline3 = 0, bmispline4 = 0
+```{r}
+fit6 = lm(HDL ~ 1 + bmispline1 + bmispline2 + bmispline5 + age10 + nonwhite + smoking + drinkany, data = df_m3t7)
+anova(fit2, fit6)
+```
+
+
+Test for bmispline4 = 0, bmispline5 = 0
+```{r}
+fit7 = lm(HDL ~ 1 + bmispline1 + bmispline2 + bmispline3 + age10 + nonwhite + smoking + drinkany, data = df_m3t7)
+anova(fit2, fit7)
+```
+HDL vs. BMI based on adjusted spline model
+```{r, warning=F}
+# Need a new data.frame since certain rows contain missing BMI values and the spline function omits such rows, leading the predicted row count to be smaller than dim(df_m3t7)
+df_m3t7$yhat_spline = predict(fit2)
+
+library(ggplot2)
+ggplot(aes(x = BMI, y = HDL), data = df_m3t7) +
+  geom_point(color = "grey42") +
+  geom_line(aes(x = BMI, y = yhat_spline)) +
+  theme_bw() + xlab(expression(BMI~(kg/m^2))) +
+  scale_y_continuous(breaks = seq(0, 200, 50), limits = c(0, 150)) +
+  scale_x_continuous(breaks = seq(10, 50, 10))
+```
+
+Let’s redo using an unadjusted model
+```{r, warning=F}
+summary(fit8 <- lm(HDL ~ 1 + bmispline1 + bmispline2 + bmispline3 + bmispline4 + bmispline5, data = df_m3t7, na.action = na.exclude))
+df_m3t7$yhat_unadj = predict(fit8)
+ggplot(aes(x = BMI, y = HDL), data = df_m3t7) +
+  geom_point(color = "grey42") +
+  geom_line(aes(x = BMI, y = yhat_unadj)) +
+  theme_bw() + xlab(expression(BMI~(kg/m^2))) +
+  scale_y_continuous(breaks = seq(0, 200, 50), limits = c(0, 150)) +
+  scale_x_continuous(breaks = seq(10, 50, 10))
+```
+
+Comparison of fitted values from adjusted spline and BMI models 
+```{r, warning=F}
+summary(fit9 <- lm(HDL ~ 1 + BMI + age10 + nonwhite + smoking + drinkany, data = df_m3t7, na.action = na.exclude))
+df_m3t7$yhat_BMI = predict(fit9)
+
+ggplot(aes(x = yhat_BMI, y = yhat_spline), data = df_m3t7) +
+  geom_point(color = "grey42") +
+  theme_bw()
+```
+
+# Fractional polynomial
+
+Let's fit a fractional polynomial. One implementation of fractional polynomial can be found in `library(mfp)`. 
+
+
+```{r, message=F}
+df_fracpoly <- read.csv("bodyfatData.csv") # read in data
+library(mfp)
+```
+
+Fit a fractional polynomial linear model with a maximum 4 degrees of freedom. The best model was found to be pbfm ~ bmi^-1 despite the model with bmi^-2 term having lower deviance.
+```{r}
+summary(fit_df5 <- mfp(pbfm ~ fp(bmi, df = 4, scale = F),
+        data = df_fracpoly,
+        verbose = T))
+```
+But if we want to replicate Stata's result for demonstration purposes, we can 'hack' the alpha threshold a little to keep the bmi^-2 term in. This is **not recommended** in practice since it goes against the familywise error rate theoretical guarantees implemented by the function (detailed here: Ambler G, Royston P (2001) Fractional polynomial model selection procedures: investigation of Type I error rate. Journal of Statistical Simulation and Computation 69: 89--108.). 
+
+Any difference in the best model chosen can *probably* be explained by the differences in model selection algorithm. Stata's polyfrac implementation/algorithm details can be found here: https://www.stata.com/manuals/rfp.pdf
+
+```{r}
+summary(fit_df4 <- mfp(pbfm ~ fp(bmi, df = 4, scale = F),
+        data = df_fracpoly,
+        verbose = T, alpha = 0.99))
+```
+
+
+We will plot the fitted lines. Error band is only plotted for pbfm ~ bmi^-2 + bmi^-1. Fitted curve for pbfm ~ bmi^-2 + bmi^-1 is in blue, for pbfm ~ bmi^-1 is in red.
+```{r}
+# pbfm ~ bmi^-2 + bmi^-1
+df_fracpoly$fitted2 = predict(fit_df4)
+df_fracpoly$fitted.se2 = predict(fit_df4, se.fit = T)$se.fit
+
+# pbfm ~ bmi^-1
+df_fracpoly$fitted1 = predict(fit_df5)
+df_fracpoly$fitted.se1 = predict(fit_df5, se.fit = T)$se.fit
+
+ggplot(aes(x = bmi, y = pbfm), data = df_fracpoly) +
+  geom_point() +
+  geom_ribbon(aes(ymin = fitted2 - 1.96*fitted.se2, ymax = fitted2 + 1.96*fitted.se2), fill = "lightgrey", alpha = 0.5) +
+  geom_line(aes(x = bmi, y = fitted2), color = "blue") + theme_bw() + 
+  geom_line(aes(x = bmi, y = fitted1), color = "red") + theme_bw() +
+  ggtitle(expression(y==beta[0]+beta[1]*bmi^-2+beta[2]*bmi^-1~(blue)~vs~y==beta[0]+beta[1]*bmi^-1~(red)))
+```
+

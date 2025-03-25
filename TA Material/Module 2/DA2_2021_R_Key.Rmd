@@ -1,0 +1,178 @@
+---
+title: "DA2_2021_R_Key"
+author: "Arvon Clemons II"
+date: "2/10/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+DA2 <- read.csv("DA2.csv")
+DA2$snoutsize <- factor(DA2$snoutsize)
+library(ggplot2)
+library(MASS)
+```
+
+Question:  Benignus et al. (1981) conducted an animal study to measure blood levels of toluene (bloodtol) (a commonly used solvent) following a 3-hour inhalation exposure to ranging from 11.34 to 1744.77 parts per million (ppm) toluene (newppm). Blood levels are expressed in ppm, weight in grams, age in days and snout size is dichotomous (1=short snout, 2=long snout).  Use these data to conduct your own analysis to model the relationship between blood toluene and exposure, possibly adjusting for weight and age.  
+
+# Use these data (da2) to answer the following questions
+
+## a.   Use descriptive statistics and graphs to learn about these data.
+
+```{r}
+psych::describe(DA2)
+```
+
+Many different graphs can be used to learn about the data, such as scatterplots, barplots, histograms, etc.
+```{r}
+p <- ggplot(DA2)
+
+p + aes(x = newppm, y = bloodtol) +
+  geom_point(colour = 'blue4')
+
+p + aes(x = bloodtol) +
+  geom_histogram(fill = 'khaki', colour = "black", 
+                 binwidth = ((3.5 * sd(DA2$bloodtol)) / nrow(DA2)^(1/3)), aes(y = ..density..)) +
+  stat_function(fun = dnorm, args = list(mean = mean(DA2$bloodtol), sd = sd(DA2$bloodtol)),
+                colour = "blue4")
+
+p + 
+  aes(x = bloodtol) + 
+  geom_density(colour = 'darkblue') +
+  stat_function(fun = dnorm, args = list(mean = mean(DA2$bloodtol), sd = sd(DA2$bloodtol)),
+                colour = "red4") +
+  ggtitle('Probability Density Estimate for y') + 
+  labs(title = "Kernel Density Estimate",
+       x = "Blood Toluene Level", y = "Density") +
+  theme_bw()
+```
+
+
+## b.   Fit a regression model for bloodtol that contains only exposure (newppm) and perform a graphical analysis to assess the appropriateness of your linearity assumptions.  Also assess the normality of the residuals.
+
+```{r}
+fit1 <- lm(bloodtol ~ newppm, data = DA2)
+summary(fit1)
+
+DA2$yhat <- predict(fit1)
+DA2$jackres <- studres(fit1)
+
+p <- ggplot(DA2)
+
+p + aes(x = yhat, y = jackres) +
+  geom_point(colour = "blue4") +
+  geom_hline(yintercept = 0, colour = "red4") +
+  labs(x = "Fitted Values", y = "Studentized Residuals")
+
+p + aes(x = jackres) +
+ geom_density(colour = "blue4") +
+  stat_function(fun = dnorm, args = list(mean = mean(DA2$jackres), sd = sd(DA2$jackres)),
+                colour = "red4") +
+  labs(x = "Studentized Residuals", y = "Density")
+```
+
+exposure is statistically significant and there appears to be linear relationship (from the graph).
+
+If we ignore the two large residuals, it looks like a random pattern about 0, however those two large residuals could make it appear like there is a fanning shape.
+
+Residuals appear to be approximately normally distributed.
+
+## c.    Now add the other predictors to the model.  Assess which are important and explicitly test whether there is interaction (also known as effect modification) of exposure by weight, age or snout size. 
+
+```{r}
+fit2 <- lm(bloodtol ~ weight + age + newppm + snoutsize + 
+             weight*newppm +  age*newppm + newppm*snoutsize, data = DA2)
+summary(fit2)
+```
+
+```{r}
+fit3 <- lm(bloodtol ~ newppm + weight + age + snoutsize, data = DA2)
+
+anova(fit2, fit3)
+```
+
+The 3 interactions are not statistically significant so I removed them and looked at the main effects model.
+
+```{r}
+summary(fit3)
+```
+
+So from this model, I see that only exposure and age are statistically sig, so I will just keep those two moving forward in part e.
+
+## d.   Out of the models you fit in part c., only using the model with all four variables exposure, weight, age and snout size, report any appropriate collinearity diagnostics and evaluate them.
+
+```{r}
+# Function to simulate STATA
+f_calculate_vif <- function(fit) {
+  v <- c(v <- car::vif(fit))
+  m <- cbind(v, 1/v)
+  colnames(m) <- c("VIF", "1/VIF")
+  print(m)
+  cat("Mean VIF: ", mean(v))
+}
+```
+
+```{r}
+f_calculate_vif(fit3)
+```
+
+Collinearity doesn’t appear to be an issue as VIFs are all close to 1.
+
+## e.   Select the model you feel is the final model from the models fit in c. and from the information obtained in d.  That is, select the “best” model from the following:  only `exposure`, `exposure` and `age`, `exposure` and `weight`, `exposure` and `snout size`, `exposure` with `age`, `weight` and `snout size`, or the model with `exposure`, `age`, `weight`, `snout size`, `exposure*age`, `exposure*weight`, `exposure*snoutsize`
+
+```{r}
+fit4 <- lm(bloodtol ~ newppm + age, data = DA2)
+
+DA2$yhat2 <- predict(fit4)
+DA2$jackres2 <- studres(fit4)
+DA2$dist <- cooks.distance(fit4)
+DA2$lev <- hatvalues(fit4)
+
+p <- ggplot(DA2)
+
+p + aes(x = yhat2, y = jackres2) +
+  geom_point(colour = "blue4") +
+  geom_hline(yintercept = 0, colour = "red4") +
+  labs(x = "Fitted Values", y = "Studentized Residuals")
+
+dist_cutoff <- 4 / nrow(DA2)
+
+p + aes(x = rat, y = dist) +
+  geom_point(colour = "blue4") +
+  geom_hline(yintercept = dist_cutoff, colour = "red4") +
+  labs(x = "Rat", y = "Cook's D")
+
+inf_cutoff <- 2*(2 + 1) / nrow(DA2)
+
+p + aes(x = rat, y = lev) +
+  geom_point(colour = "blue4") +
+  geom_hline(yintercept = inf_cutoff, colour = "red4") +
+  labs(x = "Rat", y = "Leverage")
+```
+
+
+
+## f.Based on the model you chose in part e., identify poorly fit, high leverage points, and/or influential points in your model.  Perform a sensitivity analysis by refit the model excluding the troublesome points.  Is your model sensitive to these points?
+
+```{r}
+DA2_mod <- DA2[DA2$dist > 0.067, c("rat", "jackres2", "lev", "dist")]
+DA2_mod <- DA2_mod[order(DA2_mod$dist), ]
+head(DA2_mod)
+```
+
+We will exclude these 4 points above in our sensitivity analysis
+```{r}
+fit5 <- lm(formula = bloodtol ~ newppm + age, data = DA2[!DA2$rat %in% DA2_mod$rat, ])
+summary(fit5)
+```
+
+
+## g.   Fit a robust regression using the model you chose in part e and compare the two models.  Comment on the differences.  Do you think the robust model is more appropriate here?
+
+```{r}
+rfit7 <- MASS::rlm(formula = bloodtol ~ newppm + age, data = DA2)
+summary(rfit7)
+```
+
+
+## h.   Based on what you saw in your descriptives from part a. would a data transformation be appropriate?  If so which one?  (no need to transform, just comment).

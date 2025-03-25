@@ -1,0 +1,112 @@
+---
+title: "Module 2 Topic 6 Example"
+output:
+  html_document: default
+---
+
+
+Read in the Module 6 Example 1 Data
+
+```{r}
+mod2_ex1 <- read.csv("Module2Topic6Ex1.csv")
+```
+
+Use the `str` function to get a description of the data
+```{r}
+str(mod2_ex1)
+```
+
+Calculate the quadratic term `p2`
+```{r}
+mod2_ex1$p2 <- mod2_ex1$percent^2
+summary(mod2_ex1$percent) # to obtain a summary of the `percent` variable
+```
+
+Now to center both the `percent` and `p2` variables
+```{r}
+mod2_ex1$pcent <- mod2_ex1$percent - mean(mod2_ex1$percent)
+mod2_ex1$pcent2 <- mod2_ex1$pcent^2
+```
+
+Look at correlation matrix
+```{r}
+cor(mod2_ex1)
+```
+
+To graph a scatterplot matrix in R we can use the `plot` function
+```{r}
+plot(mod2_ex1)
+```
+
+There is also the `GGally` package which can make a more visually striking scatterplot matrix
+```{r}
+library(GGally)
+ggpairs(mod2_ex1)
+```
+
+
+To calculate VIF will require the `car` package
+```{r}
+fit1 <- lm(csat ~ percent + p2 + high, data = mod2_ex1)
+summary(fit1)
+
+library(car)
+vif(fit1)
+```
+
+To mimic the STATA output for 1/VIF and Mean VIF, we will write a simple convenience function.
+
+```{r}
+f_calculate_vif <- function(fit) {
+  v <- c(v <- car::vif(fit))
+  m <- cbind(v, 1/v)
+  colnames(m) <- c("VIF", "1/VIF")
+  print(m)
+  cat("Mean VIF: ", mean(v))
+}
+
+f_calculate_vif(fit1)
+```
+
+```{r}
+fit2 <- lm(csat ~ pcent + pcent2 + high, data = mod2_ex1)
+summary(fit2);
+f_calculate_vif(fit2)
+```
+
+Now for the Body Fat Percentage Data
+
+```{r}
+mod2_ex2 <- read.csv("Module2Topic6-bodyfat.csv")
+fit3 <- lm(bodyfat ~ midarm + thigh + triceps, data = mod2_ex2)
+summary(fit3)
+f_calculate_vif(fit3)
+```
+
+```{r}
+cor(mod2_ex2)
+```
+
+```{r}
+fit4 <- lm(bodyfat ~ triceps, data = mod2_ex2)
+summary(fit4)
+```
+
+```{r}
+fit5 <- lm(bodyfat ~ thigh, data = mod2_ex2)
+summary(fit5)
+```
+
+```{r}
+fit6 <- lm(bodyfat ~ midarm + thigh, data = mod2_ex2)
+summary(fit6); 
+f_calculate_vif(fit6)
+```
+
+There are numerous packages in CRAN available for easy identification of other diagnostic collinearity statistics. One of them would be the `mctest` package
+
+```{r}
+library(mctest)
+imcdiag(fit3)
+```
+

@@ -1,0 +1,295 @@
+---
+title: "DA4_2021_R_Key"
+author: "Arvon Clemons II"
+date: "3/17/2021"
+output:
+  pdf_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1:  A study was designed to identify variables associated with tumor penetration of prostatic capsule in patients with prostate cancer.  Data were collected from an academic affiliated cancer center.  For this assignment, the dataset was modified to include 380 patients and a subset of variables from the main study.  Of the 374 patients, 151 had a cancer that penetrated the prostatic capsule.
+
+```{r}
+DA4 <- read.csv("DA4.CSV")
+
+# Categorical Variables
+DA4$capsule <- factor(DA4$capsule)
+DA4$race <- factor(DA4$race)
+DA4$dcaps <- factor(DA4$dcaps)
+DA4$dpros <- factor(DA4$dpros)
+```
+
+Answer the following questions and justify your answers.  Interpretations are necessary!
+
+## 1.	Perform the following tasks to build prediction models. 
+
+### a.	Center the continuous predictors AGE, PSA, VOL, and GLEASON by their median values.
+
+```{r}
+DA4$age_c <- DA4$age - median(DA4$age, na.rm = T)
+DA4$PSAC <- DA4$psa - median(DA4$PSA, na.rm = T) 
+DA4$vol_c <- DA4$vol - median(DA4$vol, na.rm = T)
+DA4$gleason_c <- DA4$gleason - median(DA4$gleason, na.rm = T)
+```
+
+```{r, echo = FALSE}
+logit_summary <- function(x){
+  stopifnot("glm" %in% class(x)) # input must be of class 'glm'
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- with(x, null.deviance - deviance) # chi-square test statistic
+  AIC <- stats::AIC(x) # Akaike information criterion
+  BIC <- stats::BIC(x) # Bayesian Information Criterion
+  pval <- with(x, stats::pchisq(null.deviance - deviance, # p-value of model
+                         df.null - df.residual, lower.tail = FALSE))
+  
+  mod_stats <- merge(summary(x)$coefficients, exp(confint.default(x)), by = "row.names") # model stats
+  mod_stats$`Odds Ratio` <- exp(mod_stats$Estimate) # add 'Odds Ratio'
+  mod_stats <- subset(mod_stats, select = -Estimate) # drop 'Estimate'
+  mod_stats <- mod_stats[,c(1, ncol(mod_stats),2:(ncol(mod_stats)-1))] # reorder columns
+  
+
+  
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "LR chi2", 
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+```
+
+```{r, echo = FALSE}
+lrt <- function(reduced, full){ # important to provide reduced model in correct argument
+  calc <- stats::anova(reduced, full)
+  LR_chi <- calc$Deviance[2] # Test Statistic
+  DF <- calc$Df[2] # degree of freedom
+  
+  pval <- stats::pchisq(q = LR_chi, df = DF, lower.tail = F)
+  
+  result <- list(LR_chi, DF, pval)
+  names(result) <- c("LR chi2", "df", "Prob > chi2")
+  return(result)
+}
+```
+
+
+```{r, echo = FALSE}
+McF <- function(x){  
+  c(
+    1 - logLik(x)/logLik(glm(as.formula(paste(as.character(x$formula[2]), "1", sep = "~")),
+                             family = binomial(link = "logit"), data = x$data))
+  )  
+}
+```
+
+### b.	Complete the following table by fitting 7 candidate multivariable logistic regression models. 
+
+```{r}
+fit1 <- glm(capsule ~ dpros + gleason_c + psa_c, 
+            family = binomial(link = "logit"), data = DA4)
+fit2 <- glm(capsule ~ dpros + gleason_c + psa_c + dcaps, 
+            family = binomial(link = "logit"), data = DA4)
+fit3 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c, 
+            family = binomial(link = "logit"), data = DA4)
+fit4 <- glm(capsule ~ dpros + gleason_c + psa_c + age_c, 
+            family = binomial(link = "logit"), data = DA4)
+fit5 <- glm(capsule ~ dpros + gleason_c + psa_c + race, 
+            family = binomial(link = "logit"), data = DA4)
+fit6 <- glm(capsule ~ dpros + gleason_c + psa_c + vol_c + race, 
+            family = binomial(link = "logit"), data = DA4)
+fit7 <- glm(capsule ~ dpros + gleason_c + psa_c + dcaps + vol_c + race + age_c, 
+            family = binomial(link = "logit"), data = DA4)
+```
+
+**We will use McFadden's Pseudo R-squared**
+
+Covariats in the Model*    | Deviance        | Psuedo $R^2$ | AIC                       | BIC
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 1:                   |`r fit1$deviance`|`r McF(fit1)` |`r logit_summary(fit1)$AIC`|`r logit_summary(fit1)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 2:                   |`r fit2$deviance`|`r McF(fit2)` |`r logit_summary(fit2)$AIC`|`r logit_summary(fit2)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`dcaps`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 3:                   |`r fit3$deviance`|`r McF(fit3)` |`r logit_summary(fit3)$AIC`|`r logit_summary(fit3)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`vol_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 4:                   |`r fit4$deviance`|`r McF(fit4)` |`r logit_summary(fit4)$AIC`|`r logit_summary(fit4)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`age_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 5:                   |`r fit5$deviance`|`r McF(fit5)` |`r logit_summary(fit5)$AIC`|`r logit_summary(fit5)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`race`                     |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 6:                   |`r fit6$deviance`|`r McF(fit6)` |`r logit_summary(fit6)$AIC`|`r logit_summary(fit6)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`vol_c` `race`             |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 7:                   |`r fit7$deviance`|`r McF(fit7)` |`r logit_summary(fit7)$AIC`|`r logit_summary(fit7)$BIC`
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`dcaps` `vol_c` `race`     |                 |              |                           |
+`age_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+
+*Using centered variables.
+
+**Must show output for each model as well as fill in above table**
+
+### c.	What is the “best” model among the 7 candidate models listed in part b?  If candidate models are nested use a likelihood ratio test to test the importance of the extra term(s).  Justify your choice of a “best” model. 
+
+M3, M6, and M7 have smaller deviance, greater pseudo R2, and smaller AIC and BIC.
+
+Because M3 is nested within M6, we can perform LRT test.  
+```{r}
+lrt(fit3, fit6)
+```
+
+There is no statistically significant difference between M3 and M6. So, the parsimonious model (M3) is the best model among the 7 candidate models.
+
+### d.	Based on the model you identified in part c, estimate the probability of having tumor penetration for a 65-year-old white man who had unilobar nodule (left), but no capsular involvement detected in digital rectal exam, and had 1.4 mg/ml prostatic specific antigen, a 0 cm3 tumor, and total Gleason score of 6.
+
+```{r}
+newData <- data.frame(dpros = '2',  
+                      psa_c = 1.4 - median(DA4$psa, na.rm = T),
+                      vol_c = 0 - median(DA4$vol, na.rm = T), 
+                      gleason_c = 6 - median(DA4$gleason, na.rm = TRUE),
+                      stringsAsFactors = TRUE)
+predict.glm(fit3, newdata = newData, type = 'response')
+```
+
+## 2.	Based on the best model you identified in part c, perform appropriate diagnostic procedures for the following tasks:
+
+### a.	Test the overall model fit.
+
+```{r}
+performance::performance_hosmer(fit3, n_bins = 10)
+```
+**Note: This is a different result from the STATA Answer Key**
+We must conclude that there is enough evidence for lack-of-fit and hence reject the model. 
+
+### b.	Identify the patients whose outcomes were not well predicted by the best model you identified in part c.
+
+```{r}
+library(ggplot2)
+jack_cutoff <- 0.025 / nrow(DA4) # Jackknife Residual Cut-off
+DA4$resid <- rstandard(fit3)
+DA4$jack <- MASS::studres(fit3)
+DA4$yhat <- fit3$fitted.values
+
+
+p <- ggplot(DA4)
+
+p + aes(x = yhat, y = jack, label = id) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Jackknife Residuals vs Fitted Values") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  xlab("Fitted Values") +
+  ylab("Standardized Residuals") +
+  theme(legend.title = element_blank()) +
+  theme_bw()
+
+p + aes(x = yhat, y = resid, label = id) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Standardized Residuals vs Fitted Values") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  xlab("Fitted Values") +
+  ylab("Standardized Residuals") +
+  theme(legend.title = element_blank()) +
+  theme_bw()
+
+p + aes(x = id, y = jack, label = id) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Jackknife Residuals by Patient ID") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  xlab("Patient") +
+  ylab("Standardized Residuals") +
+  theme(legend.title = element_blank()) +
+  theme_bw()
+
+p + aes(x = id, y = resid, label = id) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Standardized Residuals by Patient ID") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  xlab("Patient") +
+  ylab("Standardized Residuals") +
+  theme(legend.title = element_blank()) +
+  theme_bw()
+```
+
+```{r}
+DA4[abs(DA4$jack) > 2, c("id", "capsule", "dpros", "gleason", "psa_c", "vol_c")]
+```
+
+From the plots we observe that there are some observations with large residuals, especially for subjects 89, 278, and 292. They are outliers which are not well predicted by this model.
+
+### c.	Identify the patients who had extreme values in the space spanned by the predictors selected from the best model.
+
+```{r}
+DA4$lev <- hatvalues(fit3)
+lev_cutoff <- 2*(6 + 1) / nrow(DA4)
+p <- ggplot(DA4)
+
+p + aes(x = id, y = lev, label = id) +
+  geom_point(colour = 'darkblue') +
+  geom_hline(yintercept = lev_cutoff, colour = "darkred") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = 'Patient Leverage Values',
+       x = "Patient ID", y = "Leverage") +
+  theme_bw()
+
+DA4[DA4$lev > lev_cutoff, c("id", "lev")]
+```
+
+We can observe that there are 20 patients of high leverage with extreme values.
+
+### d.	Identify those patients whom if were removed from the dataset would change the parameter estimation significantly.
+
+```{r}
+DA4$dist <- cooks.distance(fit3)
+cooks_cutoff <- 4 / nrow(DA4)
+
+p <- ggplot(DA4)
+
+p + aes(x = id, y = dist, label = id) +
+  geom_point(colour = 'darkblue') +
+  geom_hline(yintercept = cooks_cutoff, colour = "darkred") +
+  geom_text(hjust = "left", vjust = "bottom") +
+  labs(title = 'Patient Infleuential Points',
+       x = "Patient ID", y = "Cook's D") +
+  theme_bw()
+
+DA4[DA4$dist > cooks_cutoff, c("id", "dist")]
+```
+
+There are 22 patients, identified above, who if removed would significantly change the parameter estimation.
+
+### e.	Do you have problematic points based on your responses to b-d?  Does your model fit well?
+
+```{r}
+library(dplyr)
+DA4 %>% 
+  filter(lev > lev_cutoff, dist > cooks_cutoff) %>% 
+  select(id, lev, dist, jack) %>% 
+  knitr::kable(caption = "Observations For Possible Removal")
+```
+
+Yes we have several problematic points, as listed above. Furthermore our model has shown statistically significance under the GOF test, suggesting that it is not a good fit for our data. Perhaps removing the problematic points above will include the fit, but otherwise I would not recommend using this model.

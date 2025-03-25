@@ -1,0 +1,315 @@
+---
+title: "DA7_2021_R_Key"
+author: "Arvon Clemons II"
+date: "4/23/2021"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    df_print: paged
+    toc: yes
+---
+
+## Libraries
+```{r}
+library(ggplot2)
+library(MASS)
+```
+
+## Import Data
+```{r}
+DA6 <- read.csv("./da6.csv")
+
+# factor categorical variables
+DA6$health <- factor(DA6$health)
+DA6$sex <- factor(DA6$sex)
+DA6$adldiff <- factor(DA6$adldiff)
+DA6$race <- factor(DA6$race)
+DA6$privins <- factor(DA6$privins)
+```
+
+```{r Custom Functions, include = FALSE}
+log_summary <- function(x, robust = FALSE, irr = FALSE){
+  stopifnot("glm" %in% class(x), # input must be of class 'glm'
+            is.logical(robust)) # robust argument must be logical
+  
+  waldChi2 <- function(x){
+    # Get the coefficients of the non-intercept parameters 
+    b <- matrix(coef(x)[2:length(coef(x))])
+    # Get the covariance matrix of terms in b
+    V <- vcov(x)[2:nrow(vcov(x)),2:nrow(vcov(x))]
+    # Create the R matrix for the 3 linear hypothesis
+    R <- matrix(0, nrow = nrow(b), ncol = nrow(b))
+    # Only the diagonal in R needs to be filled in
+    diag(R) <- 1
+    # Create a vector of values Rb = r
+    r <- 0
+    # Calculate Wald statistics
+    chi2 <- as.numeric(t((R%*%b - r)) %*% (solve(R %*% V %*% t(R))) %*% (R%*%b - r))
+    
+    return(chi2)
+  }
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- if(robust == FALSE){
+    with(x, null.deviance - deviance) # LR chi-square test statistic
+  }
+  else(
+    waldChi2(x) # Wald chi-square test statistic
+  )
+  McF <- signif(1 - stats::logLik(x)/stats::logLik(glm(as.formula(paste(y, "1", sep = "~")), # McFadden's Pseudo R^2
+                                                       family = poisson(link = "log"), data = x$data)), digits = 4)
+  AIC <- stats::AIC(x) # Akaike information criterion
+  BIC <- stats::BIC(x) # Bayesian Information Criterion
+  pval <- round(with(x, stats::pchisq(tStat, # p-value of model
+                                      df.null - df.residual, lower.tail = FALSE)), digits = 4)
+  Disp_P <- sum(residuals(x, type = "pearson")^2) / x$df.residual # Pearson Dispersion
+  
+  mod_stats <- merge(summary(x)$coefficients, confint.default(x),
+                     by = "row.names", sort = FALSE) # model stats
+  
+  if(robust == TRUE){
+    rse <- sqrt(diag(sandwich::vcovHC(x, type="HC0"))) # Robust Standard Error
+    
+    mod_stats <- subset(mod_stats,
+                        select = -3) # drop 'Std. Error'
+    
+    # robust statistics
+    mod_stats$`z value` <- round(coef(x) / rse, digits = 2)
+    mod_stats$`Pr(>|z|)` <-  round(2 * stats::pnorm(abs(stats::coef(x)/rse), lower.tail=FALSE), 
+                                   digits = 3)
+    mod_stats$`2.5 %` <- stats::coef(x) - stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`97.5 %` <- stats::coef(x) + stats::qnorm(0.975, lower.tail = T) * rse
+    mod_stats$`Robust Std. Error` <- rse # add 'Robust Std. Error'
+    mod_stats <- mod_stats[,c(1:2, ncol(mod_stats),3:(ncol(mod_stats)-1))] # reorder columns
+  }
+  
+  if(irr == TRUE){
+    mod_stats$Estimate <- exp(mod_stats$Estimate)
+    mod_stats$`2.5 %` <- exp(mod_stats$`2.5 %`)
+    mod_stats$`97.5 %` <- exp(mod_stats$`97.5 %`)
+    # mod_stats$`Robust Std. Error` <- msm::deltamethod(list(~ exp(x1), ~ exp(x2), ~ exp(x3), ~ exp(x4)), coef(x),
+    #                                sandwich::vcovHC(x, type="HC0"))
+    
+    names(mod_stats) <- c("Row.names", "IRR", "Delta Std. Error",
+                          "z value", "Pr(>|z|)", "2.5 %", "97.5 %")
+  }
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, McF, AIC, BIC, pval, Disp_P, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "chi2", "Pseudo R^2",
+                     "AIC", "BIC", "Prob > chi2","(1/df) Pearson","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+
+# To Do
+## Fix Robust Std. Error using Delta Method when arg 'irr = TRUE'
+## Fix Pseudo R^2 when using Poisson Regression model w/ offset
+
+lincom <- function(x, linfct, exp = FALSE, ...){
+  stopifnot("glm" %in% class(x), # input must be of class 'glm'
+            is.logical(exp))  # robust argument must be logical
+  
+  linComb <- multcomp::glht(x, linfct, ...)
+  linSummary <- summary(linComb)
+  df <- setNames(data.frame(Estimate = linSummary$test$coefficients,
+             sigma = linSummary$test$sigma,
+             z = linSummary$test$tstat,
+             pval= linSummary$test$pvalues),
+           c("Estimate", "Std. Err", "z", "P>|z|"))
+  Confint <- stats::confint(linSummary)$confint[,2:3]
+  Confint <- matrix(Confint, ncol = 2)
+  colnames(Confint) <- c("2.5 %", "97.5 %")
+  df <- cbind(df, Confint)
+  
+  if(exp == TRUE){
+    df <- apply(df[c(1, 5:6)], 2, exp)
+  }
+  return(df)
+}
+
+poisson_GOF <- function(x, type = c("deviance","pearson")){
+  if(missing(type)){
+    type <- "deviance" # default arg 'type = "deviance"'
+  }
+  stopifnot(class(x)[1] == "glm", # input must be of class 'glm'
+            class(type) == "character", # type arg must be 'character'
+            type == "deviance" | type == "pearson")
+  
+  if(type == "deviance"){
+    # Deviance based likelihood ratio test: $\chi^2_D$ 
+    cat("Goodness-of-fit chi2 = ", x$deviance,
+        paste0("\nProb > chi2(",x$df.residual,") = "), pchisq(x$deviance, df=x$df.residual, lower.tail = F))
+  }
+  if(type == "pearson"){
+    # Pearson goodness of fit: $\chi^2_P$
+    y <- as.character(x$formula[2]) # outcome variable
+    y_j <- x$y
+    e_ep_j <- predict(x, type = "response")
+    cat("Goodness-of-fit chi2 = ", sum((y_j - e_ep_j)^2/e_ep_j),
+        paste0("\nProb > chi2(",x$df.residual,") = "),
+        pchisq(sum((y_j - e_ep_j)^2/e_ep_j), df=x$df.residual, lower.tail = F))
+  }
+}
+
+lrt <- function(reduced, full){ # important to provide reduced model in correct argument
+  calc <- stats::anova(reduced, full)
+  LR_chi <- calc$Deviance[2] # Test Statistic
+  DF <- calc$Df[2] # degree of freedom
+  
+  pval <- round(stats::pchisq(q = LR_chi, df = DF, lower.tail = F), digits = 4)
+  
+  cat(paste0("chi2(", DF,")=",signif(LR_chi, digits = 4),
+      "\nProb > chi2 = ", pval))
+  
+  # result <- list(LR_chi, DF, pval)
+  # names(result) <- c("LR chi2", "df", "Prob > chi2")
+  # return(result)
+}
+```
+
+Answer the following questions and justify your answers.  Interpretations are necessary!
+
+## Question 1:
+
+Using glm with family poisson and log link, fit a Poisson model that estimates the expected number of physician office visits adjusting for health status, gender, race, condition of limiting activities of living, race, private insurance information, age, chronic conditions, and education. Assess the scale parameters and determine if the assumptions of the Poisson model you fit are violated. In addition, assess if you think there are excess zeros. Explain your answer.
+
+```{r}
+fitPOI <- glm(visit ~ health + sex + adldiff + race + privins + age + cond + edu,
+            family = poisson(link = "log"), data = DA6)
+
+log_summary(fitPOI)
+```
+
+```{r}
+dispersion_parameter <- sum(residuals(fitPOI,type ="pearson")^2)/fitPOI$df.residual
+dispersion_parameter
+```
+
+
+The estimated Pearson chi-square dispersion parameter is `r log_summary(fitPOI)$"(1/df) Pearson"` >> 1, indicating the presence of overdispersion so a negative binomial model would be more appropriate.
+
+They might also fit a negative binomial regression to assess this which is ok
+
+```{r}
+fit1 <- glm.nb(visit ~ health + sex + adldiff + race + privins + age + cond + edu, data = DA6)
+summary(fit1)
+```
+
+```{r}
+# Likelihood Ratio Test
+pchisq(2 * (logLik(fit1) - logLik(fitPOI)), df = 1, lower.tail = F)
+```
+
+This indicates the Negative Binomial Regression model is more appropriate than the Poisson Regression model.
+
+To assess the excess zeros,
+
+```{r}
+sum(DA6$visit == 0) / nrow(DA6)
+```
+
+The percentage of zero count is about 5.6%. Zero-inflated models do not need to be considered.
+
+## Question 2
+
+Using negative binomial regression refit the model, perform a likelihood ratio test or Wald test to identify whether health status, gender, race, condition of limiting activities of living, race, private insurance information, age, chronic conditions, and education are univariably associated with the mean number of physician office visits. (This means to fit single models, one for each of those covariates).
+
+```{r}
+fit2 <- update(fit1, . ~ health)
+fit3 <- update(fit1, . ~ sex)
+fit4 <- update(fit1, . ~ race)
+fit5 <- update(fit1, . ~ adldiff)
+fit6 <- update(fit1, . ~ privins)
+fit7 <- update(fit1, . ~ age)
+fit8 <- update(fit1, . ~ cond)
+fit9 <- update(fit1, . ~ edu)
+fitNull <- update(fit1, . ~ 1)
+```
+
+```{r}
+FitList <- mget(ls(pattern = "fit[[:digit:]]")) # list of fits 1 - 9
+lapply(FitList, anova, fitNull)[-1]
+```
+
+**So we will not include sex and age.**
+
+## Question 3
+
+Fit a multivariable model that describes the data given the information from #2 (don’t consider interactions) and complete the following with appropriate interpretation:
+
+
+```{r}
+fit10 <- update(fit1, . ~ . - age - sex)
+summary(fit10)
+```
+
+Adjusted for the other independent variables, what is the estimated ratio of 
+number of physician office visits for 50 year old males who reported an excellent health condition and 2 chronic conditions to 50 year old females who reported an average health condition and 5 chronic conditions.
+
+```{r}
+lincom(fit10, linfct = "health3 - health2 + (-3 * cond) = 0", exp = T)
+```
+
+## Question 4
+
+Perform an appropriate test or other analysis to assess the appropriateness of the negative binomial model in #3, comment on those results.
+
+Scale parameters from the model in #3 are around 1, so negative binomial is ok to use.  Could also refit using nbreg to the get LRT of alpha=0,
+
+```{r}
+# dispersion parameter
+sum(residuals(fit10, type = "pearson") ^ 2) / fit10$df.residual
+```
+
+Dispersion parameter `r sum(residuals(fit10, type = "pearson") ^ 2) / fit10$df.residual` is close to 1 so NB is ok. Or using LRT
+
+```{r}
+# Likelihood Ratio Test
+pchisq(2 * (logLik(fit10) - logLik(update(fitPOI, . ~ . - age - sex))), df = 1, lower.tail = F)
+```
+
+Test of overdispersion using the LRT of alpha = 0 is significant, indicating the NB model is more appropriate.
+
+## Question 5
+
+Compute the adjusted residuals, predicted visits and influence statistics from the model in #3.  Generate the graph of the adjusted residuals vs the fitted visits weighted by the influence using:
+
+```{r, eval= FALSE}
+p <- ggplot(DA6)
+
+p + aes(x = vhat, y = adjres, size = cooksd) +
+  geom_point(colour = "darkblue") +
+  geom_hline(yintercept = 0, colour = "darkred") +
+  labs(x = "Predicted mean visit") + 
+  theme_bw()
+```
+
+```{r}
+DA6$resid <- resid(fit10, type = "pearson")
+DA6$hat <- hatvalues(fit10)
+DA6$adjres <- with(DA6, resid / sqrt(1 - hat))
+DA6$cooksd <- cooks.distance(fit10)
+DA6$vhat <- predict(fit10, type = "response")
+DA6$index <- 1:nrow(DA6)
+DA6 <- DA6[, c(ncol(DA6), 2:(ncol(DA6) - 1))]
+```
+
+```{r}
+p <- ggplot(DA6)
+
+p + aes(x = vhat, y = adjres, size = cooksd) +
+  geom_point(colour = "darkblue") +
+  geom_hline(yintercept = 0, colour = "darkred") +
+  labs(x = "Predicted mean visit") + 
+  theme_bw()
+```
+
+We see the fanning shape which we would expect for these data.  However, there does seem to be some very large residuals as well as influential points.

@@ -1,0 +1,105 @@
+---
+title: "Module 1 Topic 1 Example"
+output:
+  html_document: default
+---
+
+
+We can read in Stata data files in directly with the `read_stata()` function from `library(haven)`. Alternatively, we can read **C**omma **S**eparated **V**alues files with `read.csv()`
+
+```{r}
+data_mod1 = read.csv("Module1Topics1and2Example.csv")
+```
+
+List the data
+```{r}
+data_mod1
+```
+
+We will regress y on x1 and x2
+```{r}
+fit = lm(y ~ x1 + x2, data = data_mod1)
+summary(fit)
+```
+
+Compute fitted values. You can look at the arguments for `predict.lm()` with `?predict.lm`
+```{r}
+predict(fit)
+```
+Add the fitted to our data.frame
+```{r}
+data_mod1$yhat = predict(fit)
+```
+
+List the fitted values for patient == 5
+```{r}
+data_mod1[data_mod1$patient == 5,]
+```
+
+We can predict the values when x1 = 2.8, x2 = 7. With base R, you will have to calculate the 
+
+```{r}
+predict(fit, newdata = data.frame(x1 = 2.8, x2 = 7), interval = "confidence", se = TRUE)
+```
+
+When x1 = 2.8, x2 = 5.
+```{r}
+predict(fit, newdata = data.frame(x1 = 2.8, x2 = 5), interval = "confidence", se = TRUE)
+```
+The $R^2$ for models 1, 2, and 3 are printed by the `summary.lm()` method.
+
+```{r}
+summary(lm(y ~ x1, data = data_mod1))
+```
+
+```{r}
+summary(lm(y ~ x2, data = data_mod1))
+```
+
+
+```{r}
+summary(lm(y ~ x1 + x2, data = data_mod1))
+```
+
+
+We can center variables in R manually
+
+```{r}
+data_mod1$c_x1 = data_mod1$x1 - mean(data_mod1$x1)
+data_mod1$c_x2 = data_mod1$x2 - mean(data_mod1$x2)
+```
+
+Alternatively, we can use the `scale()` function to center the variables `x1` and `x2` 
+
+```{r}
+x1x2_centered = scale(data_mod1[,c("x1", "x2")], center = TRUE, scale = FALSE)
+head(x1x2_centered)
+```
+
+We can see that the two methods produce the same values.
+
+```{r}
+data_mod1$c_x1 == x1x2_centered[,1]
+data_mod1$c_x2 == x1x2_centered[,2]
+```
+
+Perform the regression on the full model using the centered variables.
+
+```{r}
+summary(fit2 <- lm(y ~ c_x1 + c_x2, data = data_mod1))
+```
+
+
+Now generate the predicted values for the centered regression.
+
+
+```{r}
+data_mod1$c_yhat = predict(fit2)
+```
+
+Compare the predicted values
+
+```{r}
+data_mod1[,c("yhat", "c_yhat")]
+```
+

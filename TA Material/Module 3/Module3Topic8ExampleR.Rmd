@@ -1,0 +1,84 @@
+---
+title: "Module 3 Topic 8 Example"
+output:
+  html_document: default
+---
+
+
+Read in the data and fit the max model and check collinearity diagnostics
+```{r}
+df <-  read.csv("Module3Topic8ExData.csv")
+
+summary(fit <- lm(y ~ ., data = df))
+
+# Re-use the vif function from topic 6
+f_calculate_vif <- function(fit) {v <- c(v <- car::vif(fit));m <- cbind(v, 1/v);colnames(m) <- c("VIF", "1/VIF");print(m);cat("Mean VIF: ", mean(v))}
+f_calculate_vif(fit)
+```
+
+Show the correlation matrix
+```{r}
+cor(df)
+```
+There are numerous model selection libraries available to R. Within base R, there are stepwise selection is implemented in `step()`.
+
+Exhaustive search, forward or backward stepwise, or sequential replacement can be performed with `library(leaps)`. Other popular model selection libraries include `bestglm`, `glmulti`.
+
+`library(HH)` contains some helper functions that makes the outputs from `library(leaps)` easier to digest.
+
+```{r}
+library(leaps)
+library(HH)
+summaryHH(fit <- regsubsets(y ~ . , data = df, method = "exhaustive"))
+```
+```{r}
+# Choose model 2
+summary(lm.regsubsets(fit, 2))
+```
+Backward and forward selection can be performed with the `regsubsets()` function, but we will demonstrate stepwise selection with base R.
+
+Backward selection by AIC (selection by p-value is supported by `leaps::regsubsets`)
+```{r}
+step(lm(y ~ ., data = df), scope = list(upper = ~., lower = ~1), direction = "backward")
+```
+Forward selection by AIC
+```{r}
+# Foward
+step(lm(y ~ 1, data = df), scope = list(upper = ~., lower = ~1), direction = "forward")
+```
+Chunkwise selection is not supported by `step()`. A quick Comprehensive R Archive Network (CRAN) seems to indicate that stepwise/chunkwise model selection may not be implemented in any user implemented packages.
+
+Backwards Elimination Locking in the first term (x6)
+```{r}
+step(lm(y ~ ., data = df), scope = list(upper = ~., lower = ~x6), direction = "backward")
+```
+
+```{r, message=FALSE}
+library(ggplot2)
+fit = lm(y ~ x1 + x3, data = df)
+qplot(predict(fit), MASS::studres(fit),
+      main = "Jackknife Residuals vs Fitted Values",
+      xlab = "Fitted Values", ylab = "Jackknife Residuals") +
+  theme_bw() +
+  geom_hline(aes(yintercept = 0), color = "red")
+```
+
+Assess homogeneity of variance assumption.
+
+An implementation of the Breusch-Pagan Test can be found in `library(car)` as `ncvTest()`. 
+
+```{r, message=FALSE}
+library(car)
+ncvTest(fit)
+```
+
+Plot the kernel density
+```{r}
+plot(density(studres(fit)), ylim = c(0, 0.4), col = "blue")
+lines(seq(-3, 3, 0.01), dnorm(seq(-3, 3, 0.01)), col = "red")
+```
+
+Test for non-normality with Shapiro-Wilks
+```{r}
+shapiro.test(studres(fit))
+```

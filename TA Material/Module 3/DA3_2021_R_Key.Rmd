@@ -1,0 +1,319 @@
+---
+title: "DA3_2021_R_Key"
+author: "Arvon Clemons II"
+date: "2/26/2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+**Question 1:** Using the same data from Data Analysis #2, Benignus et al. (1981) conducted an animal study to measure blood levels of toluene (bloodtol) (a commonly used solvent) following a 3-hour inhalation exposure to ranging from 11.34 to 1744.77 parts per million (ppm) toluene (newppm). Blood levels are expressed in ppm, weight in grams, and age in days.
+
+Use these data (DA2) to answer the following questions:
+
+# Q1
+
+## a.	Fit a simple linear model with bloodtol as the dependent variable and just newppm as the independent variable, generate a component plus residual plot (cprplot in Stata) using the lowess (add a lowess option to cprplot, we did this in our live session example for topic 7) smoother and again using splines (add an mspline option to cprplot).  Comment on these two graphs.  Would an alternative model possibly be better?  **There is no need to do additional analyses, just create the requested two graphs and make a comment based on the graphs.**
+
+```{r}
+DA2 <- read.csv("../Module 2/DA2.csv")
+DA2 <- DA2[order(DA2$newppm), ]
+
+fit1 <- lm(bloodtol ~ newppm, data = DA2)
+
+## spline model ##
+library(splines)
+bspline <- bs(DA2$newppm, knots = c(200, 400, 600, 800))
+fit_spline1 <- lm(DA2$bloodtol ~ bspline)
+y_spline1 <- predict(fit_spline1)
+
+p <- ggplot(DA2, aes(x = newppm, y = bloodtol))
+
+p + geom_point(colour = "darkblue") +
+  geom_line(aes(x = newppm, y = y_spline1), colour = "darkgreen") + 
+  geom_smooth(method = "lm", se = F, colour = "purple") +
+  labs(x = "newppm", y = "Component Plus Residual", title = "mspline") +
+  theme_bw()
+```
+
+Definitely departures from linearity and the spline seems to be fitting the data better than the line.
+
+```{r}
+# loess
+p + geom_point(colour = "darkblue") +
+  geom_smooth(method = "loess", se = F,colour = "darkgreen") +
+  geom_smooth(method = "lm", se = F, colour = "purple") +
+  labs(x = "newppm", y = "Component Plus Residual", title = "loess") +
+  theme_bw()
+```
+
+While it shows there are departures from linearity, it also shows that smoother reflects the observed data better than the line.
+
+Comparing all 3, I would say the spline seems to get at the curvature in these data better.  It follows the observed data patterns.
+
+## b. Fit a 2nd degree fractional polynomial and generate the compare table.  Write down the models that are compared.  From the fractional polynomial output, choose which model is best.  Show the fractional polynomial plot from this model.
+
+```{r}
+library(mfp)
+summary(fit2 <- mfp(bloodtol ~ fp(newppm, df = 4, scale = F),
+        data = DA2,
+        verbose = T))
+
+p + geom_point(colour = "darkblue") +
+  geom_smooth(method = "lm", se = F, colour = "purple") +
+  geom_line(aes(x = newppm, y = fit2$fitted.values),colour = "darkgreen") +
+  labs(title = "Fractional Polynomial", x = "newppm", y = "Component Plus Residual") +
+  theme_bw()
+```
+
+This follows the shape of the data well.
+
+## c.	Out of all models that you’ve tried from parts a. and b. (linear, smoother, spline, 2nd degree fracpoly), which model would you choose.  Justify your answer.  Don’t fit anything new here, base you answer on the graphs that you’ve generated in part a as well as the fractional polynomial plot and output from part b.  You do not have compute deviance or R2 for these models.
+
+**They could pick any other three with justification.**  
+
+I would chose the spline because it would easier to talk about and follows the data well, the other choice is the fractional polynomial but the confidence interval is too wide for me.  They don’t have the chose the one I did, they just have to say why they picked the one they did.
+
+**Question 2:**  Property valuation:  Twenty four observations were obtained from a property listing for Erie PA.  The problem is to use model building to find the best fitting regression model for the prediction of sales price (Y) using the following independent variables:  taxes in $1000s of dollars (X1), number of bathrooms (X2), lot size (X3), living space (X4), number of garage stalls (X5), number of rooms (X6), number of bedrooms (X7), age of the home in years (X8) and number of fireplaces (X9).  The data have been uploaded to Canvas (DA3.dta).
+
+Answer the following questions, justifying with the appropriate analyses.  Do not just answer yes or no, you must justify your response and provide data to back it up.
+
+# Q2
+
+## a. A veteran real estate agent has suggested that a model with taxes, the number of rooms, and the age of the house should adequately describe sales price.  Fit that model and assess whether you agree.
+
+```{r}
+DA3 <- read.csv("DA3.CSV")
+
+names(DA3) <- c("tax", "bathrooms", "lot", "living", "garage", # labeling
+                "rooms", "bedrooms", "age", "fireplace", "price")
+
+summary(fit3 <- lm(price ~ tax + rooms + age, data = DA3))
+
+# Add diagnostics
+DA3$yhat1 <- predict(fit3)
+DA3$jack1 <- MASS::stdres(fit3)
+```
+
+Checking for collinearity
+```{r}
+# Function to simulate STATA
+f_calculate_vif <- function(fit) {
+  v <- c(v <- car::vif(fit))
+  m <- cbind(v, 1/v)
+  colnames(m) <- c("VIF", "1/VIF")
+  print(m)
+  cat("Mean VIF: ", mean(v))
+}
+
+f_calculate_vif(fit3)
+```
+
+
+R2 is sufficiently high, no issues with collinearity.  Check model diagnostics.
+
+```{r}
+p <- ggplot(DA3)
+
+p + aes(x = fit3$fitted.values, y = MASS::stdres(fit3)) +
+  geom_point(colour = 'darkblue') +
+  geom_hline(yintercept = 0, colour = 'darkred') +
+  labs(title = "Jackknife Residuals vs Fitted Values",
+       x = "Fitted Values", y = "Jackknife Residuals") +
+  theme_bw()
+```
+
+There appears to be a lot of fanning in these residuals. 
+
+```{r}
+# Check for heteroscedasticity
+car::ncvTest(fit3, var.formula = ~residuals) # standard residuals
+
+```
+
+Does not seem to have issues with constant variance.  May have an outlier as one of the residuals is close to 3.
+
+```{r}
+# plotting
+ggplot(DA3) + aes(x = jack1) +
+  geom_density(colour = 'darkblue') +
+  stat_function(fun = dnorm, args = list(mean = mean(DA3$jack1), sd = sd(DA3$jack1)),
+                colour = "red4") + 
+  ggtitle('Probability Density Estimate for Studentized Residuals') + 
+  xlab('Studentized Residuals') +
+  theme_bw()
+
+shapiro.test(MASS::stdres(fit3)) # Shapiro-Wilk W Test
+```
+
+They don’t have to do the shapiro wilke test but if they do they need to interpret correctly.
+
+May be slightly skewed.  But I think close enough.  Normality test agrees.
+
+So I would say all in all, this model seems to be fine overall, however I notice that x6 and x8 are not statistically significant but x1 is.
+
+## b.	Another suggestion was that the selling price is determined by its desirability which is a function of the physical characteristics of the building.  The physical characteristics of the building are reflected in the local taxes paid on the building, thus the best predictor of sales price is local taxes.  Fit that model and assess whether you agree.
+
+```{r}
+summary(fit4 <- lm(price ~ tax, data = DA3))
+
+# Add diagnostics
+DA3$yhat2 <- predict(fit4)
+DA3$jack2 <- MASS::stdres(fit4)
+```
+
+This R2 is very slightly less than the previous model. X1 is highly statistically significant.
+
+```{r}
+ggplot(DA3) + aes(x = yhat2, y = jack2) +
+  geom_point(colour = 'darkblue') +
+  geom_hline(yintercept = 0, colour = 'darkred') +
+labs(title = "Jackknife Residuals vs Fitted Values",
+       x = "Fitted Values", y = "Jackknife Residuals") +
+  theme_bw()
+
+```
+
+Seems ok, looks similar to the model 1 diagnostics.
+
+```{r}
+# Check for heteroscedasticity
+car::ncvTest(fit4, var.formula = ~residuals) # standard residuals
+```
+
+Constant variance is not violated.
+
+```{r}
+# plotting
+ggplot(DA3) + aes(x = jack2) +
+  geom_density(colour = 'darkblue') +
+  stat_function(fun = dnorm, args = list(mean = mean(DA3$jack2), sd = sd(DA3$jack2)),
+                colour = "red4") + 
+  ggtitle('Probability Density Estimate for Studentized Residuals') + 
+  xlab('Studentized Residuals') +
+  theme_bw()
+
+shapiro.test(MASS::stdres(fit4)) # Shapiro-Wilk W Test
+```
+
+May be slightly skewed.  But I think close enough.  Normality test agrees.
+
+So I would say all in all, this model seems to be fine overall and very close to the previous model.  It also shows that it does just as good as the previous model with the extra variables in it
+
+## c.	Because of the suggestion in b), it was also then suggested that the building characteristics in an equation with local taxes would be redundant in describing sales price.  Fit that model with all 9 predictors and assess whether you agree.  Also assess collinearity and interpret what you see.  Should you fit another model?  If so, fit it.
+
+```{r, error = TRUE}
+summary(fit5 <- lm(price ~ .-jack1 - jack2 - yhat1 - yhat2, # remove jack and yhat when fitting
+                   data = DA3)) 
+
+f_calculate_vif(fit5)
+```
+
+Issues with collinearity are identified.  X6 and x7 are highly correlated with each other causing the collinearity issues.
+
+```{r}
+cor(DA3[, c("bedrooms", "rooms")])
+```
+
+None of the variables other than x1 are statistically significant.  So it seems (comparing to part b), taxes by itself does just fine.
+
+**It would be fine if they stopped here for this question**
+
+**But to be safe, I refit without x6 (total number rooms) and just used x7 (no of bedrooms)**
+```{r}
+summary(fit6 <- lm(price ~ .-rooms - jack1 - jack2 - yhat1 - yhat2,
+                   data = DA3))
+
+DA3$yhat3 <- predict(fit6)
+DA3$jack3 <- MASS::stdres(fit6)
+
+f_calculate_vif(fit6)
+```
+
+R2 highest of all the ones we’ve seen, only x1 and possibly x2 are significant
+
+```{r}
+ggplot(DA3) + aes(x = yhat3, y = jack3) +
+  geom_point(colour = 'darkblue') +
+  geom_hline(yintercept = 0, colour = 'darkred') +
+labs(title = "Jackknife Residuals vs Fitted Values",
+       x = "Fitted Values", y = "Jackknife Residuals") +
+  theme_bw()
+```
+
+My eye goes to some possible fanning here.
+
+Although hettest does not reject.
+
+```{r}
+# Check for heteroscedasticity
+car::ncvTest(fit6, var.formula = ~residuals) # standard residuals
+```
+
+```{r}
+# plotting
+ggplot(DA3) + aes(x = jack3) +
+  geom_density(colour = 'darkblue') +
+  stat_function(fun = dnorm, args = list(mean = mean(DA3$jack3), sd = sd(DA3$jack3)),
+                colour = "red4") + 
+  ggtitle('Probability Density Estimate for Studentized Residuals') + 
+  xlab('Studentized Residuals') +
+  theme_bw()
+
+shapiro.test(MASS::stdres(fit6)) # Shapiro-Wilk W Test
+```
+
+Looks mostly normal.
+
+So even though the diagnostics seem ok, none of the variables other than x1 are stat sig, R2 is the highest with this model though.
+
+## d.	Which model would you choose from parts a-c?  Justify your choice.
+
+I’d probably pick the model in part c.  The R2 is sufficiently higher and the properties look pretty good.
+
+## e.	Now use LASSO, ElasticNet and a backwards stepwise and find fitted regression models that relate the sale price to taxes and building characteristics.  Based on these 3 models, present what you consider to the most adequate model or models for predicting the sales price of homes in Erie PA.  Do not perform model diagnostics here (only because I wanted to cut down the work, typically we would). 
+
+NOTE:  While normally we would do a model validation after we decided on a model, the sample size is too small to do a data split for validation for this question.
+
+```{r}
+library(glmnet)
+library(glmnetUtils)
+set.seed(03032021)
+# lasso
+fit7 <- cv.glmnet(price ~ .-jack1 - jack2 - jack3 - yhat1 - yhat2 - yhat3,
+                        data = DA3, alpha = 1)
+
+coef(fit7) # selected coefficients
+```
+
+
+To pull out the cross-validated $R^2$.
+```{r}
+# The dev.ratio (R^2) table is unrounded, while fit7$lambda.min is rounded to 6 digits, set a tolerance to select the correct index.
+fit7$glmnet.fit$dev.ratio[which(abs(fit7$glmnet.fit$lambda - fit7$lambda.min) < 1e-5)]
+```
+
+```{r}
+set.seed(03032021)
+# Elastic Net
+fit8 <- cv.glmnet(price ~ .-jack1 - jack2 - jack3 - yhat1 - yhat2 - yhat3,
+                        data = DA3, alpha = 0.5)
+
+coef(fit8)
+```
+
+```{r}
+set.seed(03032021)
+# Backwards Stepwise
+summary(fit_9 <- step(lm(price ~ .-jack1 - jack2 - jack3 - yhat1 - yhat2 - yhat3,
+                    data = DA3),
+     direction = "backward",
+     scope = list(lower = ~ 1, upper = ~ .-jack1 - jack2 - jack3 - yhat1 - yhat2 - yhat3)))
+```
+

@@ -1,0 +1,139 @@
+---
+title: "DA4_2021"
+author: "insert name here"
+date: "3/17/2021"
+output:
+  pdf_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## A study was designed to identify variables associated with tumor penetration of prostatic capsule in patients with prostate cancer.  Data were collected from an academic affiliated cancer center.  For this assignment, the dataset was modified to include 380 patients and a subset of variables from the main study.  Of the 374 patients, 151 had a cancer that penetrated the prostatic capsule.
+
+```{r}
+DA4 <- read.csv("DA4.CSV")
+
+# Categorical Variables
+DA4$capsule <- factor(DA4$capsule)
+DA4$race <- factor(DA4$race)
+DA4$dcaps <- factor(DA4$dcaps)
+DA4$dpros <- factor(DA4$dpros)
+```
+
+Answer the following questions and justify your answers.  Interpretations are necessary!
+
+## 1.	Perform the following tasks to build prediction models. 
+
+### a.	Center the continuous predictors AGE, PSA, VOL, and GLEASON by their median values.
+
+```{r Logistic Summary, echo = FALSE}
+logit_summary <- function(x){
+  stopifnot(class(x)[1] == "glm") # input must be of class 'glm'
+  
+  preds <- unlist(strsplit(as.character(x$formula[3]), # extract predictors used
+                           split = "[[:space:]]\\+[[:space:]]"))
+  LL <- stats::logLik(x) # log likelihood
+  y <- as.character(x$formula[2]) # outcome variable
+  tStat <- with(x, null.deviance - deviance) # chi-square test statistic
+  McF <- 1 - logLik(x)/logLik(glm(as.formula(paste(y, "1", sep = "~")), # McFadden's Pseudo R^2
+                             family = binomial(link = "logit"), data = x$data))
+  AIC <- x$aic # Akaike information criterion
+  BIC <- (-2 * LL) + (log(length(x$residuals)) * (length(preds) + 1)) # Bayesian Information Criterion
+  pval <- with(x, stats::pchisq(null.deviance - deviance, # p-value of model
+                         df.null - df.residual, lower.tail = FALSE))
+  
+  mod_stats <- merge(summary(x)$coefficients, exp(confint.default(x)), by = "row.names") # model stats
+  mod_stats$`Odds Ratio` <- exp(mod_stats$Estimate) # add 'Odds Ratio'
+  mod_stats <- subset(mod_stats, select = -Estimate) # drop 'Estimate'
+  mod_stats <- mod_stats[,c(1, ncol(mod_stats),2:(ncol(mod_stats)-1))] # reorder columns
+  
+
+  
+  
+  tbl <- data.frame(nrow = length(preds), ncol = 5) # data.frame
+  
+  output <- list(LL, y, tStat, McF,AIC, BIC, pval, tbl) # list of diagnostics
+  names(output) <- c("log likelihood", "outcome", "LR chi2", "Psuedo R^2",
+                     "AIC", "BIC", "Prob > chi2","results") # names for list
+  
+  output$results <- mod_stats
+  
+  return(output)
+}
+```
+
+```{r Likelihood Ratio Test, echo = FALSE}
+lrt <- function(reduced, full){ # important to provide reduced model in correct argument
+  calc <- stats::anova(reduced, full)
+  LR_chi <- calc$Deviance[2] # Test Statistic
+  DF <- calc$Df[2] # degree of freedom
+  
+  pval <- stats::pchisq(q = LR_chi, df = DF, lower.tail = F)
+  
+  result <- list(LR_chi, DF, pval)
+  names(result) <- c("LR chi2", "df", "Prob > chi2")
+  return(result)
+}
+```
+
+### b.	Complete the following table by fitting 7 candidate multivariable logistic regression models. 
+
+Covariats in the Model*    | Deviance        | Psuedo $R^2$ | AIC                       | BIC
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 1:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 2:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`dcaps`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 3:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`vol_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 4:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`age_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 5:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`race`                     |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 6:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`vol_c` `race`             |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+Model 7:                   |                 |              |                           |
+`dpros` `gleason_c` `psa_c`|                 |              |                           |
+`dcaps` `vol_c` `race`     |                 |              |                           |
+`age_c`                    |                 |              |                           |
+---------------------------|-----------------|--------------|---------------------------|---------------------------
+
+*Using centered variables.
+
+### c.	What is the “best” model among the 7 candidate models listed in part b?  If candidate models are nested use a likelihood ratio test to test the importance of the extra term(s).  Justify your choice of a “best” model. 
+
+
+### d.	Based on the model you identified in part c, estimate the probability of having tumor penetration for a 65-year-old white man who had unilobar nodule (left), but no capsular involvement detected in digital rectal exam, and had 1.4 mg/ml prostatic specific antigen, a 0 cm3 tumor, and total Gleason score of 6.
+
+
+## 2.	Based on the best model you identified in part c, perform appropriate diagnostic procedures for the following tasks:
+
+
+### a.	Test the overall model fit.
+
+
+### b.	Identify the patients whose outcomes were not well predicted by the best model you identified in part c.
+
+
+### c.	Identify the patients who had extreme values in the space spanned by the predictors selected from the best model.
+
+
+### d.	Identify those patients whom if were removed from the dataset would change the parameter estimation significantly.
+
+
+### e.	Do you have problematic points based on your responses to b-d?  Does your model fit well?
+

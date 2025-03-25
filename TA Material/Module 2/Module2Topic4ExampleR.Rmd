@@ -1,0 +1,160 @@
+---
+title: "Module 2 Topic 4 Example"
+author: "Arvon Clemons II"
+output: 
+  html_document: default
+---
+
+We will continue to use the same data from Module 1
+```{r}
+data_mod1 <- read.csv("C:/Users/Fedora/OneDrive - University of Pittsburgh/BIOST 2049 Applied Regression Analysis/TA Material/Module 1/Module1Topics1and2Example.csv")
+```
+
+Using base R to create a density plot on the variable `y`
+```{r}
+plot(density(data_mod1$y),
+     main=('Probability Density Estimate'), 
+     xlab = ('y'))
+```
+
+Using `ggplot2` instead
+```{r}
+library(ggplot2)
+p <- ggplot(data_mod1)
+p + 
+  aes(x = y) + 
+  geom_density(colour = 'darkblue') +
+  stat_function(fun = dnorm, args = list(mean = mean(data_mod1$y), sd = sd(data_mod1$y)),
+                colour = "red4") +
+  ggtitle('Probability Density Estimate for y') + 
+  xlab('y') +
+  theme_bw()
+```
+
+Using `ggplot2` to create a box plot on the variable `x1`
+```{r}
+p +
+  aes(x = x1) +
+  geom_boxplot(colour = 'darkblue', fill = 'cornflowerblue') +
+  ggtitle('Box Plot of x1') + 
+  xlab('x1') +
+  coord_flip() +
+  theme_bw()
+```
+
+
+Using `ggplot2` to create a scatterplot on the variable `y` vs `x1`
+```{r}
+p +
+  aes(x = x1, y = y) +
+  geom_point(colour = 'darkblue') +
+  ggtitle('Scatterplot of y vs x1') + 
+  xlab('x1') + ylab('y') +
+  theme_bw()
+```
+
+Now to perform a linear regression on all the `y` using the `x1`, `x2`, and `x3` as predictors.
+
+```{r}
+fit <- lm(y ~ x1 + x2 + x3, data = data_mod1)
+summary(fit)
+```
+
+Predict the residuals of our model using the `MASS` package
+```{r}
+library(MASS)
+data_mod1$jackres <- studres(fit)
+```
+
+Predict `yhat`
+```{r}
+data_mod1$yhat <- predict(fit)
+```
+
+Histogram of the residuals from our model using `ggplot2`
+```{r}
+p <- ggplot(data_mod1) # must repeat this since we added two new columns
+p + aes(x = jackres) +
+  geom_histogram(aes(y = ..density..), fill = 'khaki',
+                 color = 'black', bins = 20, binwidth = 0.8) + # note that you can fine tune the bin appearance
+  geom_density(alpha = 0.8, colour = 'blue') +
+  ggtitle('Histogram of Residuals') +
+  xlab('Studentized Residuals')
+
+```
+
+Colors that are available in `R` can be viewed by running the `colors()` function and they can be viewed [here](https://www.r-graph-gallery.com/ggplot2-color.html)
+
+Now with our residuals we can observe their distribution using a boxplot as we did before
+```{r}
+p + aes(jackres) +
+  geom_boxplot(colour = 'blue4', fill = 'darkslategray4') +
+  ggtitle('Boxplot of JackKnife Residuals') +
+  xlab('Residuals') +
+  coord_flip() +
+  theme_bw()
+```
+
+Scatterplot of Residuals vs Fitted
+```{r}
+data_mod1$res <- resid(fit) # Raw residuals
+
+p <- ggplot(data_mod1)
+
+p + aes(x = yhat, y = res) +
+  geom_point(colour = 'darkblue') +
+  ggtitle("Residuals vs Fitted Values") +
+  xlab("Fitted Values") + ylab("Residuals") + 
+  theme_bw()
+```
+
+It is also possible to simply use the `car` package to plot the residuals vs fitted values without the need to manually list either value. However, these will not be studentized (i.e. jackknife).
+
+```{r}
+library(car)
+residualPlot(fit)
+```
+
+Scatterplot of JackKnife Residuals vs Fitted
+```{r}
+p + aes(x = yhat, y = jackres) +
+  geom_point(colour = 'darkblue') + 
+  ggtitle("JackKnife Residuals vs Fitted Values") +
+  ylab('Studentized Residuals') + xlab('Fitted Values') +
+  geom_hline(yintercept = 0, colour = 'red') + 
+  theme_bw()
+```
+
+Now lets determine whether there is any heteroscedasticity using the Breush Pagan Test instead of relying on the above graph. This could be done manually using base R, however we will instead use the `car` package for its simplicity.
+
+```{r}
+library(car)
+(bp <- ncvTest(fit))
+```
+
+We can see that our Chisquare is `r bp$ChiSquare` with a p-value of `r bp$p` which is less than the default significane value of 0.05. Hence we reject the null hypothesis and conclude that there is heteroscedasticity.
+
+Graphing the response vs fitted values
+```{r}
+p + aes(x = yhat, y = y) +
+  geom_point(colour = 'darkblue') +
+  xlab('Fitted Values') + ylab('Response') +
+  ggtitle("Response vs Fitted Values") +
+  theme_bw()
+```
+
+
+In comparison to the STATA code, in R we use the `qnorm` function instead of `invnorm`
+```{r}
+(jack_cutoff <- qnorm(0.025/53))
+```
+
+For our dataset, we have 53 observations so the cut-off value for our residuals would be `r jack_cutoff`.
+
+Now compare the value of residuals in our dataset with the above cut-off to identify extreme observations.
+
+```{r}
+data_mod1$patient[abs(data_mod1$jackres) >= abs(jack_cutoff)]
+```
+
+The above confirms that none of the observations were statistically significant, hence by this metric no observations should be omitted.

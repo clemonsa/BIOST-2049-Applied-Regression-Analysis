@@ -1,0 +1,49 @@
+---
+title: "Module 1 Topic 2 Example"
+output:
+  html_document: default
+---
+
+
+Read in the data
+
+```{r}
+data_mod1 = read.csv("Module1Topics1and2Example.csv")
+```
+
+```{r}
+fit1 = lm(y ~ x1 + x2 + x3, data = data_mod1)
+fit2 = lm(y ~ x1, data = data_mod1)
+fit3 = lm(y ~ x2, data = data_mod1)
+fit4 = lm(y ~ x3, data = data_mod1)
+fit5 = lm(y ~ x1 + x2, data = data_mod1)
+fit6 = lm(y ~ x1 + x3, data = data_mod1)
+fit6 = lm(y ~ x2 + x3, data = data_mod1)
+```
+
+The F-test for each model are printed by the `summary.lm()` method. Replace `fit1` with the corresponding model name for other fits.
+
+```{r}
+summary(fit1)
+```
+
+To compute $F(x_2|x_1)$, we can use the `anova()` command. 
+
+```{r}
+anova(fit2, fit5)
+```
+Alternatively, this test statistics can also be read off the `summary.lm()` output by squaring the `t value` for `x2`. $F(x_2|x_1) = (-2.349)^2 = 5.5177$ with p-value = $0.02282$.
+
+```{r}
+summary(fit5)
+```
+
+
+Similarly, for $F(x_3|x_1,x_2) = (1.035)^2 = 1.071$
+
+```{r}
+summary(fit1)
+anova(fit1, fit5)
+```
+```
+

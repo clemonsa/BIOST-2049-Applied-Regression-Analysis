@@ -1,0 +1,75 @@
+---
+title: "Graphing Smoothers, Splines, and FPs"
+author: "Arvon Clemons II"
+date: "2/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+For DA3 question 1 parts A and B you are required to make several component plus residual plots using the lowess smoother, splines, and a 2nd degree fractional polynomial.
+
+This is a more explicit guide, using the Module 3 `hersdataDiabetes.csv` and `bodyfatData.csv` data, to show how to create the graphs needed. We will use the packages `ggplot2`, `splines` and `mfp` for this.
+
+## Loading Libraries
+```{r}
+library(ggplot2)
+library(splines)
+library(mfp)
+```
+
+
+## Fitting the model
+```{r}
+df1 <- read.csv("hersdataDiabetes.csv") # read in data
+df1 <- df1[order(df1$BMI), ] # sort by BMI
+
+summary(fit <- lm(HDL ~ 1 + BMI + age10 + nonwhite + smoking + drinkany, data = df1))
+```
+
+## Graphing Component Plus Residuals
+
+First we will superimpose a LOWESS smoother
+```{r}
+p <- ggplot(na.omit(df1[, c('HDL','BMI')]), aes(x = BMI, y = HDL)) # missing values are problematic
+
+p + geom_point() +
+  geom_smooth(method = "lm", se = F, colour = "purple", formula = y ~ x) +
+  geom_smooth(method = "loess", se = F, colour = "darkgreen", formula = y ~ x) + # loess smoother
+  labs(y = "Component Plus Residual", title = "Using Loess Smoother") +
+  theme_bw()
+```
+
+Now lets implement linear splines
+```{r}
+bmispline <- bs(df1$BMI, knots = c(20, 30, 40, 50))
+fit_spline1 <- lm(df1$HDL ~ bmispline)
+y_spline1 <- predict(fit_spline1)
+
+p + geom_point() +
+  geom_line(aes(x = BMI, y = y_spline1), colour = "darkgreen") + 
+  geom_smooth(method = "lm", se = F, colour = "purple") +
+  labs(y = "Component Plus Residual", title = "Linear Spline") +
+  theme_bw()
+```
+
+Finally for a 2nd degree fractional polynomial
+```{r}
+df2 <- read.csv("../Module 3/bodyfatData.csv")
+
+summary(fit2 <- mfp(pbfm ~ fp(bmi, df = 4, scale = F), # set df1 = 4 for 2nd degree FP
+        data = df2,
+        verbose = T))
+
+p2 <- ggplot(df2, aes(x = bmi, y = pbfm))
+
+p2 + geom_point() +
+  geom_smooth(method = "lm", se = F, colour = "purple") +
+  geom_line(aes(x = bmi, y = fit2$fitted.values),colour = "darkgreen") +
+  labs(title = "Fractional Polynomial Plot", y = "Component Plus Residual") +
+  theme_bw()
+```
+
+Hopefully this helps simplify things for you guys. You should be able to adapt this for answering Question 1 Parts A and B for DA3. If you have any questions feel free to email the TAs.
